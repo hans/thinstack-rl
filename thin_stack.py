@@ -15,10 +15,11 @@ def _scatter_update_grad(op, grad):
 
 class ThinStack(object):
 
-    def __init__(self, compose_fn, batch_size, vocab_size, num_timesteps,
-                 model_dim, embedding_dim, embeddings=None,
-                 embedding_initializer=None, scope=None):
+    def __init__(self, compose_fn, tracking_fn, batch_size, vocab_size,
+                 num_timesteps, model_dim, embedding_dim, tracking_dim,
+                 embeddings=None, embedding_initializer=None, scope=None):
         self.compose_fn = compose_fn
+        self.tracking_fn = tracking_fn
 
         self.batch_size = batch_size
         self.vocab_size = vocab_size
@@ -26,6 +27,7 @@ class ThinStack(object):
         self.stack_size = num_timesteps # HACK: Not true
         self.model_dim = model_dim
         self.embedding_dim = embedding_dim
+        self.tracking_dim = tracking_dim
 
         # Helpers
         self.batch_range = tf.range(self.batch_size)
@@ -75,9 +77,14 @@ class ThinStack(object):
         self.cursors = tf.Variable(tf.ones((self.batch_size,), dtype=tf.int32) * - 1,
                                    trainable=False, name="cursors")
 
+        # TODO make parameterizable
+        self.tracking_value = tf.Variable(tf.zeros((self.batch_size, self.tracking_dim), dtype=tf.float32),
+                                          trainable=False, name="tracking_value")
+
         # Create an Op which will (re-)initialize the auxiliary variables
         # declared above.
-        aux_vars = [self.stack, self.queue, self.buffer_cursors, self.cursors]
+        aux_vars = [self.stack, self.queue, self.buffer_cursors, self.cursors,
+                    self.tracking_value]
         self.variable_initializer = tf.initialize_variables(aux_vars)
 
     def _update_stack(self, t, shift_value, reduce_value, transitions_t):
@@ -102,16 +109,17 @@ class ThinStack(object):
         stack2_ptrs = tf.to_int32(tf.gather(self.queue, tf.maximum(0, queue_ptrs))) * self.batch_size + self.batch_range
         stack2 = tf.gather(self.stack, stack2_ptrs)
 
-        reduce_value = self.compose_fn(stack1, stack2)
-
         buffer_idxs = self.buffer_cursors * self.num_timesteps + self.batch_range
         buffer_top = tf.gather(self.buffer_embeddings, buffer_idxs)
+
+        tracking_value_ = self.tracking_fn(self.tracking_value, stack1, stack2, buffer_top)
+        reduce_value = self.compose_fn(stack1, stack2, tracking_value_)
 
         stack_, queue_, cursors_ = \
                 self._update_stack(t, buffer_top, reduce_value, transitions_t)
         buffer_cursors_ = self.buffer_cursors + 1 - transitions_t
 
-        return stack_, queue_, cursors_, buffer_cursors_
+        return stack_, queue_, cursors_, buffer_cursors_, tracking_value_
 
     def forward(self):
         # Look up word embeddings and flatten for easy indexing with gather
@@ -124,7 +132,7 @@ class ThinStack(object):
             if t > 0:
                 self._scope.reuse_variables()
 
-            self.stack, self.queue, self.cursors, self.buffer_cursors = \
+            self.stack, self.queue, self.cursors, self.buffer_cursors, self.tracking_value = \
                     self._step(t, transitions_t)
 
         return self.stack
@@ -140,11 +148,13 @@ def main():
     num_timesteps = 3
     embedding_dim = 7
     model_dim = 7
+    tracking_dim = 2
     vocab_size = 10
 
-    compose_fn = lambda x, y: x + y
-    ts = ThinStack(compose_fn, batch_size, vocab_size, num_timesteps,
-                   embedding_dim, model_dim)
+    compose_fn = lambda x, y, h: x + y
+    tracking_fn = lambda h, x, y, b: tf.identity(h)
+    ts = ThinStack(compose_fn, tracking_fn, batch_size, vocab_size,
+                   num_timesteps, model_dim, embedding_dim, tracking_dim)
 
     X = [np.ones((batch_size,)) * random.randint(0, vocab_size)
          for t in range(num_timesteps)]
