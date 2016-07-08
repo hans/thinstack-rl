@@ -136,9 +136,10 @@ class ThinStack(object):
         # Look up word embeddings and flatten for easy indexing with gather
         self.buffer_embeddings = tf.nn.embedding_lookup(self.embeddings, self.buffer)
         self.buffer_embeddings = tf.reshape(self.buffer_embeddings, (-1, self.model_dim))
-
         # TODO: embedding projection / dropout / BN / etc.
 
+        # TODO: deep! just rerun with a new compose fn and use multiple stacks,
+        # reading from previous and writing to next
         for t, transitions_t in enumerate(self.transitions):
             if t > 0:
                 self._scope.reuse_variables()
