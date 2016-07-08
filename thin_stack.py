@@ -101,7 +101,7 @@ class ThinStack(object):
 
         return stack_next, queue_next, cursors_next
 
-    def _step(self, t, transitions_t):
+    def _lookup(self, t):
         stack1_ptrs = (t - 1) * self.batch_size + self.batch_range
         stack1 = tf.gather(self.stack, tf.maximum(0, stack1_ptrs))
 
@@ -112,6 +112,12 @@ class ThinStack(object):
         buffer_idxs = self.buffer_cursors * self.num_timesteps + self.batch_range
         buffer_top = tf.gather(self.buffer_embeddings, buffer_idxs)
 
+        return stack1, stack2, buffer_top
+
+    def _step(self, t, transitions_t):
+        stack1, stack2, buffer_top = self._lookup(t)
+
+        # Compute new recurrent and recursive values.
         tracking_value_ = self.tracking_fn(self.tracking_value, stack1, stack2, buffer_top)
         reduce_value = self.compose_fn(stack1, stack2, tracking_value_)
 
