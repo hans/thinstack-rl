@@ -42,6 +42,11 @@ class ThinStack(object):
             # Run the forward op to compute a final self.stack representation
             self.forward()
 
+            # Convenience member pointing to top of stack at final timestep
+            # TODO: Handle variable sequence lengths
+            final_representation_idx = self.batch_size * self.num_timesteps - self.batch_size
+            self.final_representations = self.stack[final_representation_idx:, :]
+
     def _create_params(self, embeddings, embedding_initializer):
         embedding_shape = (self.vocab_size, self.embedding_dim)
         if embeddings is None:
@@ -118,8 +123,8 @@ class ThinStack(object):
         stack1, stack2, buffer_top = self._lookup(t)
 
         # Compute new recurrent and recursive values.
-        tracking_value_ = self.tracking_fn(self.tracking_value, stack1, stack2, buffer_top)
-        reduce_value = self.compose_fn(stack1, stack2, tracking_value_)
+        tracking_value_ = self.tracking_fn([self.tracking_value, stack1, stack2, buffer_top])
+        reduce_value = self.compose_fn([stack1, stack2, tracking_value_])
 
         stack_, queue_, cursors_ = \
                 self._update_stack(t, buffer_top, reduce_value, transitions_t)
@@ -157,8 +162,8 @@ def main():
     tracking_dim = 2
     vocab_size = 10
 
-    compose_fn = lambda x, y, h: x + y
-    tracking_fn = lambda h, x, y, b: tf.identity(h)
+    compose_fn = lambda (x, y, h): x + y
+    tracking_fn = lambda *xs: xs[0]
     ts = ThinStack(compose_fn, tracking_fn, batch_size, vocab_size,
                    num_timesteps, model_dim, embedding_dim, tracking_dim)
 
