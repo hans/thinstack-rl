@@ -57,46 +57,38 @@ def TokensToIDs(vocabulary, dataset, sentence_pair_data=False):
     return dataset
 
 
-def CropAndPadExample(example, left_padding, target_length, key, logger=None):
-    """
-    Crop/pad a sequence value of the given dict `example`.
-    """
-    if left_padding < 0:
-        # Crop, then pad normally.
-        # TODO: Track how many sentences are cropped, but don't log a message
-        # for every single one.
-        example[key] = example[key][-left_padding:]
-        left_padding = 0
-    right_padding = target_length - (left_padding + len(example[key]))
-    example[key] = ([0] * left_padding) + \
-        example[key] + ([0] * right_padding)
+def PadAndBucket(dataset, lengths, logger=None, sentence_pair_data=False):
+    """Pad sequences and categorize them into different length bins."""
 
-
-def CropAndPad(dataset, length, logger=None, sentence_pair_data=False):
-    # NOTE: This can probably be done faster in NumPy if it winds up making a
-    # difference.
-    # Always make sure that the transitions are aligned at the left edge, so
-    # the final stack top is the root of the tree. If cropping is used, it should
-    # just introduce empty nodes into the tree.
     if sentence_pair_data:
-        keys = [("premise_transitions", "num_premise_transitions", "premise_tokens"),
-                ("hypothesis_transitions", "num_hypothesis_transitions", "hypothesis_tokens")]
+        keys = [("premise_transitions", "premise_tokens"),
+                ("hypothesis_transitions", "hypothesis_tokens")]
     else:
-        keys = [("transitions", "num_transitions", "tokens")]
+        keys = [("transitions", "tokens")]
+
+    lengths = sorted(lengths)
+    buckets = {length: [] for length in lengths}
+    def get_nearest_bucket(length):
+        for bucket_length in lengths:
+            if length <= bucket_length:
+                return bucket_length
+        raise ValueError("length %i is larger than largest bucket length %i"
+                         % (length, lengths[-1]))
 
     for example in dataset:
-        for (transitions_key, num_transitions_key, tokens_key) in keys:
-            example[num_transitions_key] = len(example[transitions_key])
-            transitions_left_padding = length - example[num_transitions_key]
-            shifts_before_crop_and_pad = example[transitions_key].count(0)
-            CropAndPadExample(
-                example, transitions_left_padding, length, transitions_key, logger=logger)
-            shifts_after_crop_and_pad = example[transitions_key].count(0)
-            tokens_left_padding = shifts_after_crop_and_pad - \
-                shifts_before_crop_and_pad
-            CropAndPadExample(
-                example, tokens_left_padding, length, tokens_key, logger=logger)
-    return dataset
+        for transitions_key, tokens_key in keys:
+            # Pad everything at right.
+            # TODO: These token sequences are unnecessarily long.. will always
+            # be padding. Only need (n+1)/2 for n = seq_length
+            nearest_bucket = get_nearest_bucket(len(example[transitions_key]))
+
+            example[transitions_key] += [0] * (nearest_bucket - len(example[transitions_key]))
+            example[tokens_key] += [0] * (nearest_bucket - len(example[tokens_key]))
+
+            buckets[nearest_bucket].append(example)
+
+    return buckets
+
 
 def CropAndPadForRNN(dataset, length, logger=None, sentence_pair_data=False):
     # NOTE: This can probably be done faster in NumPy if it winds up making a
