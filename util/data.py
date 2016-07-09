@@ -57,7 +57,7 @@ def TokensToIDs(vocabulary, dataset, sentence_pair_data=False):
     return dataset
 
 
-def PadAndBucket(dataset, lengths, logger=None, sentence_pair_data=False):
+def PadAndBucket(dataset, lengths, sentence_pair_data=False):
     """Pad sequences and categorize them into different length bins."""
 
     if sentence_pair_data:
@@ -65,6 +65,10 @@ def PadAndBucket(dataset, lengths, logger=None, sentence_pair_data=False):
                 ("hypothesis_transitions", "hypothesis_tokens")]
     else:
         keys = [("transitions", "tokens")]
+
+    for length in lengths:
+        if length % 2 == 0:
+            raise ValueError("only odd sequence lengths are valid for SR transitions. %s" % lengths)
 
     lengths = sorted(lengths)
     buckets = {length: [] for length in lengths}
@@ -81,9 +85,10 @@ def PadAndBucket(dataset, lengths, logger=None, sentence_pair_data=False):
             # TODO: These token sequences are unnecessarily long.. will always
             # be padding. Only need (n+1)/2 for n = seq_length
             nearest_bucket = get_nearest_bucket(len(example[transitions_key]))
-
             example[transitions_key] += [0] * (nearest_bucket - len(example[transitions_key]))
-            example[tokens_key] += [0] * (nearest_bucket - len(example[tokens_key]))
+
+            max_tokens = (nearest_bucket + 1) / 2
+            example[tokens_key] += [0] * (max_tokens - len(example[tokens_key]))
 
             buckets[nearest_bucket].append(example)
 

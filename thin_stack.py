@@ -19,6 +19,8 @@ class ThinStack(object):
                  vocab_size, num_timesteps, model_dim, embedding_dim,
                  tracking_dim, embeddings=None, embedding_initializer=None,
                  scope=None):
+        assert num_timesteps % 2 == 1, "Require odd number of timesteps for binary SR parser"
+
         self.compose_fn = compose_fn
         self.tracking_fn = tracking_fn
 
@@ -29,6 +31,7 @@ class ThinStack(object):
         self.vocab_size = vocab_size
         self.num_timesteps = num_timesteps
         self.stack_size = num_timesteps # HACK: Not true
+        self.buffer_size = (num_timesteps + 1) / 2
         self.model_dim = model_dim
         self.embedding_dim = embedding_dim
         self.tracking_dim = tracking_dim
@@ -65,8 +68,9 @@ class ThinStack(object):
         self.embeddings = embeddings
 
     def _create_placeholders(self):
-        # int embedding index batch, num_timesteps * batch_size
-        self.buffer = tf.placeholder(tf.int32, (self.num_timesteps, self.batch_size))
+        # int embedding index batch, buffer_size * batch_size
+        self.buffer = tf.placeholder(tf.int32, (self.buffer_size, self.batch_size),
+                                     name="buffer")
         # list of num_timesteps-many (batch_size) int batches
         self.transitions = [tf.placeholder(tf.int32, (self.batch_size,), name="transitions_%i" % t)
                             for t in range(self.num_timesteps)]
@@ -120,7 +124,9 @@ class ThinStack(object):
         stack2_ptrs = tf.to_int32(tf.gather(self.queue, tf.maximum(0, queue_ptrs))) * self.batch_size + self.batch_range
         stack2 = tf.gather(self.stack, stack2_ptrs)
 
-        buffer_idxs = self.buffer_cursors * self.num_timesteps + self.batch_range
+        buffer_idxs = self.buffer_cursors * self.buffer_size + self.batch_range
+        # TODO: enforce transition validity instead of this hack
+        buffer_idxs = tf.minimum(buffer_idxs, self.buffer_size * self.buffer_size + self.batch_range)
         buffer_top = tf.gather(self.buffer_embeddings, buffer_idxs)
 
         return stack1, stack2, buffer_top
@@ -179,6 +185,7 @@ def main():
 
     batch_size = 3
     num_timesteps = 3
+    buffer_size = (num_timesteps + 1) / 2
     embedding_dim = 7
     model_dim = 7
     tracking_dim = 2
@@ -195,7 +202,7 @@ def main():
                    tracking_dim)
 
     X = [np.ones((batch_size,)) * random.randint(0, vocab_size - 1)
-         for t in range(num_timesteps)]
+         for t in range(buffer_size)]
     buffer = np.concatenate([xt[np.newaxis, :] for xt in X])
     transitions = [np.zeros((batch_size,), np.int32), np.zeros((batch_size,), np.int32),
                    np.ones((batch_size,), np.int32)]
