@@ -15,11 +15,15 @@ def _scatter_update_grad(op, grad):
 
 class ThinStack(object):
 
-    def __init__(self, compose_fn, tracking_fn, batch_size, vocab_size,
-                 num_timesteps, model_dim, embedding_dim, tracking_dim,
-                 embeddings=None, embedding_initializer=None, scope=None):
+    def __init__(self, compose_fn, tracking_fn, transition_fn, batch_size,
+                 vocab_size, num_timesteps, model_dim, embedding_dim,
+                 tracking_dim, embeddings=None, embedding_initializer=None,
+                 scope=None):
         self.compose_fn = compose_fn
         self.tracking_fn = tracking_fn
+
+        self.transition_fn = transition_fn
+        self.num_transitions = 2
 
         self.batch_size = batch_size
         self.vocab_size = vocab_size
@@ -102,6 +106,8 @@ class ThinStack(object):
         cursors_next = self.cursors + (transitions_t * -1 + (1 - transitions_t) * 1)
 
         queue_idxs = cursors_next * self.batch_size + self.batch_range
+        # TODO: enforce transition validity instead of this hack
+        queue_idxs = tf.maximum(queue_idxs, 0)
         queue_next = tf.scatter_update(self.queue, queue_idxs, tf.fill((self.batch_size,), t))
 
         return stack_next, queue_next, cursors_next
@@ -126,11 +132,19 @@ class ThinStack(object):
         tracking_value_ = self.tracking_fn([self.tracking_value, stack1, stack2, buffer_top])
         reduce_value = self.compose_fn([stack1, stack2, tracking_value_])
 
+        if self.transition_fn is not None:
+            p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buffer_top])
+            transitions_t = tf.to_int32(tf.squeeze(tf.multinomial(p_transitions_t, 1)))
+            transitions_t = tf.Print(transitions_t, [transitions_t])
+        else:
+            p_transitions_t = None
+
         stack_, queue_, cursors_ = \
                 self._update_stack(t, buffer_top, reduce_value, transitions_t)
         buffer_cursors_ = self.buffer_cursors + 1 - transitions_t
 
-        return stack_, queue_, cursors_, buffer_cursors_, tracking_value_
+        return stack_, queue_, cursors_, buffer_cursors_, tracking_value_, \
+                p_transitions_t, transitions_t
 
     def forward(self):
         # Look up word embeddings and flatten for easy indexing with gather
@@ -138,14 +152,21 @@ class ThinStack(object):
         self.buffer_embeddings = tf.reshape(self.buffer_embeddings, (-1, self.model_dim))
         # TODO: embedding projection / dropout / BN / etc.
 
+        # Storage for p(transition_t) and sampled transition information
+        self.p_transitions = [None] * self.num_timesteps
+        self.sampled_transitions = [None] * self.num_timesteps
+
         # TODO: deep! just rerun with a new compose fn and use multiple stacks,
-        # reading from previous and writing to next
+        # reading from previous and writing to next, with fixed transitions on
+        # higher layers
         for t, transitions_t in enumerate(self.transitions):
             if t > 0:
                 self._scope.reuse_variables()
 
-            self.stack, self.queue, self.cursors, self.buffer_cursors, self.tracking_value = \
-                    self._step(t, transitions_t)
+            ret = self._step(t, transitions_t)
+
+            self.stack, self.queue, self.cursors, self.buffer_cursors = ret[:4]
+            self.tracking_value, self.p_transitions[t], self.sampled_transitions[t] = ret[4:]
 
         return self.stack
 
@@ -165,10 +186,15 @@ def main():
 
     compose_fn = lambda (x, y, h): x + y
     tracking_fn = lambda *xs: xs[0]
-    ts = ThinStack(compose_fn, tracking_fn, batch_size, vocab_size,
-                   num_timesteps, model_dim, embedding_dim, tracking_dim)
+    def transition_fn(*xs):
+        """Return random logits."""
+        return tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
 
-    X = [np.ones((batch_size,)) * random.randint(0, vocab_size)
+    ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
+                   vocab_size, num_timesteps, model_dim, embedding_dim,
+                   tracking_dim)
+
+    X = [np.ones((batch_size,)) * random.randint(0, vocab_size - 1)
          for t in range(num_timesteps)]
     buffer = np.concatenate([xt[np.newaxis, :] for xt in X])
     transitions = [np.zeros((batch_size,), np.int32), np.zeros((batch_size,), np.int32),
