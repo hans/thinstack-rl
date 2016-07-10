@@ -182,7 +182,6 @@ class ThinStack(object):
             self.stack, self.queue, self.cursors, self.buff_cursors = ret[:4]
             self.tracking_value, self.p_transitions[t], self.sampled_transitions[t] = ret[4:]
 
-        return self.stack
 
     def reset(self, session):
         session.run(self.variable_initializer)
