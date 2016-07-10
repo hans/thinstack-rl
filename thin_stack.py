@@ -50,14 +50,12 @@ class ThinStack(object):
             # Run the forward op to compute a final self.stack representation
             self.forward()
 
+            # Look up stack tops based on per-example length input
+            top_idxs = (self.num_transitions - 1) * self.batch_size + self.batch_range
+            self.final_representations = tf.gather(self.stack, top_idxs)
+
             # Reshape the stack into a more intuitive 3D for indexing.
             self.indexable_stack = tf.reshape(self.stack, (self.stack_size, self.batch_size, self.model_dim))
-
-            # Look up the final representation for each example
-            # There's probably a more elegant way to structure this...
-            final_indices = [[(self.num_transitions[b] - 1, b, d) for b in range(self.batch_size)] for d in range(self.model_dim)]
-            self.final_representations = tf.gather_nd(self.indexable_stack, final_indices)
-
 
     def _create_params(self, embeddings, embedding_initializer):
         embedding_shape = (self.vocab_size, self.embedding_dim)
