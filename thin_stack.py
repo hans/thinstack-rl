@@ -4,6 +4,8 @@ import random
 import numpy as np
 import tensorflow as tf
 
+import util
+
 
 # HACK: Set up gradient of the ScatterUpdate op. In this script ScatterUpdate
 # is only used non-destructively.
@@ -192,17 +194,18 @@ def main():
     tracking_dim = 2
     vocab_size = 10
 
-    compose_fn = lambda x, y, h: x + y
-    tracking_fn = lambda *xs: xs[0]
-    def transition_fn(*xs):
-        """Return random logits."""
-        logits = tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
-        return logits
+    with tf.variable_scope("m", initializer=util.HeKaimingInitializer()):
+        compose_fn = lambda x, y, h: x + y
+        tracking_fn = lambda *xs: xs[0]
+        def transition_fn(*xs):
+            """Return random logits."""
+            logits = tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
+            return logits
 
 
-    ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
-                   vocab_size, num_timesteps, model_dim, embedding_dim,
-                   tracking_dim)
+        ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
+                       vocab_size, num_timesteps, model_dim, embedding_dim,
+                       tracking_dim)
 
     X = [np.ones((batch_size,)) * random.randint(0, vocab_size - 1)
          for t in range(buffer_size)]

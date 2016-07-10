@@ -4,8 +4,7 @@ import gflags
 import tensorflow as tf
 
 from thin_stack import ThinStack
-from util import Linear
-
+import util
 
 FLAGS = gflags.FLAGS
 
@@ -17,31 +16,32 @@ def build_thin_stack_classifier(ts, num_classes, mlp_dims=(256,),
         x = ts.final_representations
         for i, (in_dim, out_dim) in enumerate(zip(dims, dims[1:])):
             with tf.variable_scope("mlp%i" % i):
-                x = Linear(x, out_dim, bias=True)
+                x = util.Linear(x, out_dim, bias=True)
                 x = tf.tanh(x)
 
         with tf.variable_scope("logits"):
-            logits = Linear(x, num_classes, bias=True)
+            logits = util.Linear(x, num_classes, bias=True)
 
     return logits
 
 
 def build_model():
-    ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
+    with tf.variable_scope("m", initializer=util.HeKaimingInitializer()):
+        ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
-    tracking_fn = lambda *xs: xs[0]
-    compose_fn = lambda x, y, h: Linear([x, y, h], FLAGS.model_dim)
-    def transition_fn(*xs):
-        """Return random logits."""
-        return tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
+        tracking_fn = lambda *xs: xs[0]
+        compose_fn = lambda x, y, h: util.Linear([x, y, h], FLAGS.model_dim)
+        def transition_fn(*xs):
+            """Return random logits."""
+            return tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
 
-    ts = ThinStack(compose_fn, tracking_fn, transition_fn, FLAGS.batch_size, FLAGS.vocab_size,
-                   FLAGS.seq_length, FLAGS.model_dim, FLAGS.embedding_dim,
-                   FLAGS.tracking_dim)
+        ts = ThinStack(compose_fn, tracking_fn, transition_fn, FLAGS.batch_size, FLAGS.vocab_size,
+                       FLAGS.seq_length, FLAGS.model_dim, FLAGS.embedding_dim,
+                       FLAGS.tracking_dim)
 
-    logits = build_thin_stack_classifier(ts, FLAGS.num_classes)
+        logits = build_thin_stack_classifier(ts, FLAGS.num_classes)
 
-    xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
+        xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
 
     return ts, logits, ys, xent_loss
 
