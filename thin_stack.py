@@ -27,13 +27,12 @@ class ThinStack(object):
         self.tracking_fn = tracking_fn
 
         self.transition_fn = transition_fn
-        self.num_transitions = 2
 
         self.batch_size = batch_size
         self.vocab_size = vocab_size
         self.num_timesteps = num_timesteps
         self.stack_size = num_timesteps # HACK: Not true
-        self.buffer_size = (num_timesteps + 1) / 2
+        self.buff_size = (num_timesteps + 1) / 2
         self.model_dim = model_dim
         self.embedding_dim = embedding_dim
         self.tracking_dim = tracking_dim
@@ -70,10 +69,11 @@ class ThinStack(object):
         self.embeddings = embeddings
 
     def _create_placeholders(self):
-        # int embedding index batch, buffer_size * batch_size
-        self.buffer = tf.placeholder(tf.int32, (self.buffer_size, self.batch_size),
-                                     name="buffer")
+        # int embedding index batch, buff_size * batch_size
+        self.buff = tf.placeholder(tf.int32, (self.buff_size, self.batch_size),
+                                     name="buff")
         # list of num_timesteps-many (batch_size) int batches
+        # Used for loss computation only.
         self.transitions = [tf.placeholder(tf.int32, (self.batch_size,), name="transitions_%i" % t)
                             for t in range(self.num_timesteps)]
 
@@ -87,8 +87,8 @@ class ThinStack(object):
         self.queue = tf.Variable(tf.zeros((self.stack_size * self.batch_size,), dtype=tf.int32),
                                  trainable=False, name="queue")
 
-        self.buffer_cursors = tf.Variable(tf.zeros((self.batch_size,), dtype=tf.int32),
-                                          trainable=False, name="buffer_cursors")
+        self.buff_cursors = tf.Variable(tf.zeros((self.batch_size,), dtype=tf.int32),
+                                          trainable=False, name="buff_cursors")
         self.cursors = tf.Variable(tf.ones((self.batch_size,), dtype=tf.int32) * - 1,
                                    trainable=False, name="cursors")
 
@@ -98,7 +98,7 @@ class ThinStack(object):
 
         # Create an Op which will (re-)initialize the auxiliary variables
         # declared above.
-        aux_vars = [self.stack, self.queue, self.buffer_cursors, self.cursors,
+        aux_vars = [self.stack, self.queue, self.buff_cursors, self.cursors,
                     self.tracking_value]
         self.variable_initializer = tf.initialize_variables(aux_vars)
 
@@ -126,22 +126,21 @@ class ThinStack(object):
         stack2_ptrs = tf.to_int32(tf.gather(self.queue, tf.maximum(0, queue_ptrs))) * self.batch_size + self.batch_range
         stack2 = tf.gather(self.stack, stack2_ptrs)
 
-        buffer_idxs = self.buffer_cursors * self.buffer_size + self.batch_range
+        buff_idxs = (self.buff_cursors * self.batch_size) + self.batch_range
         # TODO: enforce transition validity instead of this hack
-        buffer_idxs = tf.minimum(0, tf.maximum(buffer_idxs, self.buffer_size * self.buffer_size + self.batch_range))
-        buffer_top = tf.gather(self.buffer_embeddings, buffer_idxs)
-
-        return stack1, stack2, buffer_top
+        buff_idxs = tf.maximum(0, tf.minimum(buff_idxs, (self.buff_size * self.batch_size) - 1))
+        buff_top = tf.gather(self.buff_embeddings, buff_idxs)
+        return stack1, stack2, buff_top
 
     def _step(self, t, transitions_t):
-        stack1, stack2, buffer_top = self._lookup(t)
+        stack1, stack2, buff_top = self._lookup(t)
 
         # Compute new recurrent and recursive values.
-        tracking_value_ = self.tracking_fn([self.tracking_value, stack1, stack2, buffer_top])
+        tracking_value_ = self.tracking_fn([self.tracking_value, stack1, stack2, buff_top])
         reduce_value = self.compose_fn(stack1, stack2, tracking_value_)
 
         if self.transition_fn is not None:
-            p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buffer_top])
+            p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buff_top])
             sample_t = tf.multinomial(p_transitions_t, 1)
             transitions_t = tf.to_int32(tf.squeeze(sample_t))
             transitions_t = tf.Print(transitions_t, [transitions_t])
@@ -149,16 +148,16 @@ class ThinStack(object):
             p_transitions_t = None
 
         stack_, queue_, cursors_ = \
-                self._update_stack(t, buffer_top, reduce_value, transitions_t)
-        buffer_cursors_ = self.buffer_cursors + 1 - transitions_t
+                self._update_stack(t, buff_top, reduce_value, transitions_t)
+        buff_cursors_ = self.buff_cursors + 1 - transitions_t
 
-        return stack_, queue_, cursors_, buffer_cursors_, tracking_value_, \
+        return stack_, queue_, cursors_, buff_cursors_, tracking_value_, \
                 p_transitions_t, transitions_t
 
     def forward(self):
         # Look up word embeddings and flatten for easy indexing with gather
-        self.buffer_embeddings = tf.nn.embedding_lookup(self.embeddings, self.buffer)
-        self.buffer_embeddings = tf.reshape(self.buffer_embeddings, (-1, self.model_dim))
+        self.buff_embeddings = tf.nn.embedding_lookup(self.embeddings, self.buff)
+        self.buff_embeddings = tf.reshape(self.buff_embeddings, (-1, self.model_dim))
         # TODO: embedding projection / dropout / BN / etc.
 
         # Storage for p(transition_t) and sampled transition information
@@ -174,7 +173,7 @@ class ThinStack(object):
 
             ret = self._step(t, transitions_t)
 
-            self.stack, self.queue, self.cursors, self.buffer_cursors = ret[:4]
+            self.stack, self.queue, self.cursors, self.buff_cursors = ret[:4]
             self.tracking_value, self.p_transitions[t], self.sampled_transitions[t] = ret[4:]
 
         return self.stack
@@ -188,7 +187,7 @@ def main():
 
     batch_size = 3
     num_timesteps = 9
-    buffer_size = (num_timesteps + 1) / 2
+    buff_size = (num_timesteps + 1) / 2
     embedding_dim = 7
     model_dim = 7
     tracking_dim = 2
@@ -202,9 +201,8 @@ def main():
         tracking_fn = lambda *xs: xs[0]
         def transition_fn(*xs):
             """Return random logits."""
-            logits = tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
-            return logits
-
+            # logits = tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
+            return [[10., -10.] for i in range(3)] # Always shift
 
         ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
                        vocab_size, num_timesteps, model_dim, embedding_dim,
@@ -227,17 +225,13 @@ def main():
           'transitions': [0, 0, 0, 0, 0, 1, 1, 1, 1]}]
 
     X, transitions, y, lengths = util.data.BucketToArrays(data, 9)
-    print X, transitions, y, lengths
-
-    buffer = np.concatenate([xt[:, np.newaxis] for xt in X], axis=1)
-    transitions = [np.zeros((batch_size,), np.int32), np.zeros((batch_size,), np.int32),
-                   np.ones((batch_size,), np.int32)]
+    buff = np.concatenate([xt[:, np.newaxis] for xt in X], axis=1)
 
     s.run(tf.initialize_variables(tf.trainable_variables()))
     ts.reset(s)
 
-    feed = {ts.transitions[t]: transitions_t for t, transitions_t in enumerate(transitions)}
-    feed[ts.buffer] = buffer
+    feed = {ts.transitions[t]: transitions[:, t] for t in range(num_timesteps)}
+    feed[ts.buff] = buff
     print s.run(ts.stack, feed)
 
 
