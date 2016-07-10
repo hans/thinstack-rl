@@ -50,10 +50,12 @@ class ThinStack(object):
             # Run the forward op to compute a final self.stack representation
             self.forward()
 
-            # Convenience member pointing to top of stack at final timestep
-            # TODO: Handle variable sequence lengths
-            final_representation_idx = self.batch_size * self.num_timesteps - self.batch_size
-            self.final_representations = self.stack[final_representation_idx:, :]
+            self.indexable_stack = tf.reshape(self.stack, (self.stack_size, self.batch_size, self.model_dim))
+
+            # There's probably a more elegant way to structure this...
+            final_indices = [[(self.num_transitions[b] - 1, b, d) for b in range(self.batch_size)] for d in range(self.model_dim)]
+            self.final_representations = tf.gather_nd(self.indexable_stack, final_indices)
+
 
     def _create_params(self, embeddings, embedding_initializer):
         embedding_shape = (self.vocab_size, self.embedding_dim)
@@ -76,6 +78,8 @@ class ThinStack(object):
         # Used for loss computation only.
         self.transitions = [tf.placeholder(tf.int32, (self.batch_size,), name="transitions_%i" % t)
                             for t in range(self.num_timesteps)]
+
+        self.num_transitions = tf.placeholder(tf.int32, (self.batch_size,), name="num_transitions")
 
     def _create_state(self):
         """Prepare stateful variables modified during the recurrence."""
@@ -202,7 +206,7 @@ def main():
         def transition_fn(*xs):
             """Return random logits."""
             # logits = tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
-            return [[10., -10.] for i in range(3)] # Always shift
+            return [[-10., -10.] for i in range(3)] # Always shift
 
         ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
                        vocab_size, num_timesteps, model_dim, embedding_dim,
@@ -232,7 +236,8 @@ def main():
 
     feed = {ts.transitions[t]: transitions[:, t] for t in range(num_timesteps)}
     feed[ts.buff] = buff
-    print s.run(ts.stack, feed)
+    feed[ts.num_transitions] = lengths
+    print s.run([ts.indexable_stack, ts.final_representations], feed)
 
 
 if __name__ == '__main__':
