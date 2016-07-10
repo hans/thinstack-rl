@@ -138,6 +138,7 @@ class ThinStack(object):
 
     def _step(self, t, transitions_t):
         stack1, stack2, buff_top = self._lookup(t)
+        # stack1 = tf.Print(stack1, [stack1, t])
 
         # Compute new recurrent and recursive values.
         tracking_value_ = self.tracking_fn([self.tracking_value, stack1, stack2, buff_top])
@@ -147,9 +148,10 @@ class ThinStack(object):
             p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buff_top])
             sample_t = tf.multinomial(p_transitions_t, 1)
             transitions_t = tf.to_int32(tf.squeeze(sample_t))
-            transitions_t = tf.Print(transitions_t, [transitions_t])
         else:
             p_transitions_t = None
+
+        transitions_t = tf.Print(transitions_t, [transitions_t, t])
 
         stack_, queue_, cursors_ = \
                 self._update_stack(t, buff_top, reduce_value, transitions_t)
@@ -206,9 +208,9 @@ def main():
         def transition_fn(*xs):
             """Return random logits."""
             # logits = tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
-            return [[-10., -10.] for i in range(3)] # Always shift
+            return [[-10., -10.] for i in range(3)]
 
-        ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
+        ts = ThinStack(compose_fn, tracking_fn, None, batch_size,
                        vocab_size, num_timesteps, model_dim, embedding_dim,
                        tracking_dim, embedding_initializer=integer_embedding_initializer)
 
