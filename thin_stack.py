@@ -126,7 +126,7 @@ class ThinStack(object):
 
         buffer_idxs = self.buffer_cursors * self.buffer_size + self.batch_range
         # TODO: enforce transition validity instead of this hack
-        buffer_idxs = tf.minimum(buffer_idxs, self.buffer_size * self.buffer_size + self.batch_range)
+        buffer_idxs = tf.minimum(0, tf.maximum(buffer_idxs, self.buffer_size * self.buffer_size + self.batch_range))
         buffer_top = tf.gather(self.buffer_embeddings, buffer_idxs)
 
         return stack1, stack2, buffer_top
