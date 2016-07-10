@@ -136,11 +136,12 @@ class ThinStack(object):
 
         # Compute new recurrent and recursive values.
         tracking_value_ = self.tracking_fn([self.tracking_value, stack1, stack2, buffer_top])
-        reduce_value = self.compose_fn([stack1, stack2, tracking_value_])
+        reduce_value = self.compose_fn(stack1, stack2, tracking_value_)
 
         if self.transition_fn is not None:
             p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buffer_top])
-            transitions_t = tf.to_int32(tf.squeeze(tf.multinomial(p_transitions_t, 1)))
+            sample_t = tf.multinomial(p_transitions_t, 1)
+            transitions_t = tf.to_int32(tf.squeeze(sample_t))
             transitions_t = tf.Print(transitions_t, [transitions_t])
         else:
             p_transitions_t = None
@@ -191,11 +192,13 @@ def main():
     tracking_dim = 2
     vocab_size = 10
 
-    compose_fn = lambda (x, y, h): x + y
+    compose_fn = lambda x, y, h: x + y
     tracking_fn = lambda *xs: xs[0]
     def transition_fn(*xs):
         """Return random logits."""
-        return tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
+        logits = tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
+        return logits
+
 
     ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
                    vocab_size, num_timesteps, model_dim, embedding_dim,

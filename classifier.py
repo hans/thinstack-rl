@@ -31,10 +31,14 @@ def build_model():
 
     tracking_fn = lambda *xs: xs[0]
     compose_fn = lambda x, y, h: Linear([x, y, h], FLAGS.model_dim)
+    def transition_fn(*xs):
+        """Return random logits."""
+        return tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
 
-    ts = ThinStack(compose_fn, tracking_fn, FLAGS.batch_size, FLAGS.vocab_size,
+    ts = ThinStack(compose_fn, tracking_fn, transition_fn, FLAGS.batch_size, FLAGS.vocab_size,
                    FLAGS.seq_length, FLAGS.model_dim, FLAGS.embedding_dim,
                    FLAGS.tracking_dim)
+
     logits = build_thin_stack_classifier(ts, FLAGS.num_classes)
 
     xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
