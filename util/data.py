@@ -61,10 +61,10 @@ def PadAndBucket(dataset, lengths, sentence_pair_data=False):
     """Pad sequences and categorize them into different length bins."""
 
     if sentence_pair_data:
-        keys = [("premise_transitions", "premise_tokens"),
-                ("hypothesis_transitions", "hypothesis_tokens")]
+        keys = [("premise_transitions", "premise_tokens", "premise_len"),
+                ("hypothesis_transitions", "hypothesis_tokens", "hypothesis_len")]
     else:
-        keys = [("transitions", "tokens")]
+        keys = [("transitions", "tokens", "len")]
 
     for length in lengths:
         if length % 2 == 0:
@@ -80,11 +80,12 @@ def PadAndBucket(dataset, lengths, sentence_pair_data=False):
                          % (length, lengths[-1]))
 
     for example in dataset:
-        for transitions_key, tokens_key in keys:
+        for transitions_key, tokens_key, len_key in keys:
             # Pad everything at right.
             # TODO: These token sequences are unnecessarily long.. will always
             # be padding. Only need (n+1)/2 for n = seq_length
-            nearest_bucket = get_nearest_bucket(len(example[transitions_key]))
+            example[len_key] = len(example[transitions_key])
+            nearest_bucket = get_nearest_bucket(example[len_key])
             example[transitions_key] += [0] * (nearest_bucket - len(example[transitions_key]))
 
             max_tokens = (nearest_bucket + 1) / 2

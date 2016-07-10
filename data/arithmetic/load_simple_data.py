@@ -10,6 +10,8 @@
 import numpy as np
 
 from util.data import PADDING_TOKEN
+import util.data
+import pprint
 
 SENTENCE_PAIR_DATA = False
 
@@ -56,5 +58,7 @@ def load_data(path):
 
 if __name__ == "__main__":
     # Demo:
-    examples, _ = load_data('simple.tsv')
-    print examples[0]
+    examples, _ = load_data('data/arithmetic/test/simple_test.tsv')
+    examples = util.data.PadAndBucket(examples, [9, 17])
+
+    pprint.pprint(examples)

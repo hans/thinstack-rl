@@ -2,7 +2,7 @@ from collections import deque
 import copy
 import random
 import sys
-
+import util
 
 NUMBERS = range(-10, 11)
 OUTPUTS = range(-100, 101)
