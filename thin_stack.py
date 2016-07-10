@@ -187,12 +187,15 @@ def main():
     s = tf.Session()
 
     batch_size = 3
-    num_timesteps = 3
+    num_timesteps = 9
     buffer_size = (num_timesteps + 1) / 2
     embedding_dim = 7
     model_dim = 7
     tracking_dim = 2
-    vocab_size = 10
+    vocab_size = 5
+
+    def integer_embedding_initializer(*args, **kwargs):
+        return [[i for j in range(embedding_dim)] for i in range(vocab_size)]
 
     with tf.variable_scope("m", initializer=util.HeKaimingInitializer()):
         compose_fn = lambda x, y, h: x + y
@@ -205,11 +208,28 @@ def main():
 
         ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
                        vocab_size, num_timesteps, model_dim, embedding_dim,
-                       tracking_dim)
+                       tracking_dim, embedding_initializer=integer_embedding_initializer)
 
-    X = [np.ones((batch_size,)) * random.randint(0, vocab_size - 1)
-         for t in range(buffer_size)]
-    buffer = np.concatenate([xt[np.newaxis, :] for xt in X])
+    data = [{'label': 10,
+          'len': 5,
+          'sentence': '( 2 ( 4 4 ) )',
+          'tokens': [2, 4, 4, 0, 0],
+          'transitions': [0, 0, 0, 1, 1, 0, 0, 0, 0]},
+        {'label': 10,
+          'len': 5,
+          'sentence': '( ( 4 4 ) 2 )',
+          'tokens': [4, 4, 2, 0, 0],
+          'transitions': [0, 0, 1, 0, 1, 0, 0, 0, 0]},
+        {'label': 10,
+          'len': 9,
+          'sentence': '( 1 ( 2 ( 3 ( 3 1 ) ) ) )',
+          'tokens': [1, 2, 3, 3, 1],
+          'transitions': [0, 0, 0, 0, 0, 1, 1, 1, 1]}]
+
+    X, transitions, y, lengths = util.data.BucketToArrays(data, 9)
+    print X, transitions, y, lengths
+
+    buffer = np.concatenate([xt[:, np.newaxis] for xt in X], axis=1)
     transitions = [np.zeros((batch_size,), np.int32), np.zeros((batch_size,), np.int32),
                    np.ones((batch_size,), np.int32)]
 
