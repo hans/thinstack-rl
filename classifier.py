@@ -4,6 +4,7 @@ import gflags
 import tensorflow as tf
 
 from data.arithmetic import load_simple_data as load_arithmetic_data
+from reinforce import reinforce_episodic_gradients
 from thin_stack import ThinStack
 import util
 
@@ -26,6 +27,14 @@ def build_thin_stack_classifier(ts, num_classes, mlp_dims=(256,),
     return logits
 
 
+def build_rewards(classifier_logits, ys):
+    """
+    Build 0-1 classification reward for REINFORCE units within model.
+    """
+    return tf.to_float(tf.equal(tf.to_int32(tf.argmax(classifier_logits, 1)),
+                                ys))
+
+
 def build_model(num_timesteps):
     with tf.variable_scope("m", initializer=util.HeKaimingInitializer()):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
@@ -44,9 +53,20 @@ def build_model(num_timesteps):
 
         xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
         xent_loss = tf.reduce_mean(xent_loss)
-        tf.scalar_summary(["xent_loss"], [xent_loss])
+        tf.scalar_summary("xent_loss", xent_loss)
 
-    return ts, logits, ys, xent_loss
+        rewards = build_rewards(logits, ys)
+        tf.scalar_summary("avg_reward", tf.reduce_mean(rewards))
+
+        params = tf.trainable_variables()
+        xent_gradients = zip(tf.gradients(xent_loss, params), params)
+        rl_gradients = reinforce_episodic_gradients(
+                ts.p_transitions, ts.sampled_transitions, rewards,
+                params=params)
+        # TODO store magnitudes in summaries?
+        gradients = xent_gradients + rl_gradients
+
+    return ts, logits, ys, gradients
 
 
 def prepare_data():
@@ -60,7 +80,7 @@ def prepare_data():
                                  sentence_pair_data=sentence_pair_data)
 
     # TODO customizable
-    buckets = [9, 21]
+    buckets = [21]#[9, 21]
     bucketed_data = util.data.PadAndBucket(data, buckets,
                                            sentence_pair_data=sentence_pair_data)
 
@@ -74,7 +94,7 @@ def prepare_data():
     return iterator, buckets, vocabulary
 
 
-def build_training_graphs(buckets):
+def build_training_graphs(buckets, global_step):
     graphs = {}
     opt = tf.train.MomentumOptimizer(0.001, 0.9)
 
@@ -82,20 +102,20 @@ def build_training_graphs(buckets):
         summaries_so_far = set(tf.get_collection(tf.GraphKeys.SUMMARIES))
 
         with tf.variable_scope("train/", reuse=i > 0):
-            ts, logits, ys, xent_loss = build_model(num_timesteps)
-            train_op = opt.minimize(xent_loss)
+            ts, logits, ys, gradients = build_model(num_timesteps)
+            train_op = opt.apply_gradients(gradients, global_step)
 
             new_summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
             new_summary_ops = set(new_summary_ops) - summaries_so_far
             summary_op = tf.merge_summary(list(new_summary_ops))
 
-            graphs[num_timesteps] = (ts, logits, ys, xent_loss, train_op, summary_op)
+            graphs[num_timesteps] = (ts, logits, ys, train_op, summary_op)
 
     return graphs
 
 
 def run_batch(sess, graph, batch_data, do_summary=True):
-    ts, logits, ys, xent_loss, train_op, summary_op = graph
+    ts, logits, ys, train_op, summary_op = graph
     ts.reset(sess)
 
     X_batch, transitions_batch, y_batch, num_transitions_batch = batch_data
@@ -111,19 +131,21 @@ def run_batch(sess, graph, batch_data, do_summary=True):
     if not do_summary:
         summary_op = tf.constant(0.0)
 
-    fetches = [xent_loss, train_op, summary_op]
-    xent_loss_batch, _, summary = sess.run(fetches, feed)
-    return xent_loss_batch, summary
+    fetches = [train_op, summary_op]
+    _, summary = sess.run(fetches, feed)
+    return summary
 
 
 def main():
+    global_step = tf.Variable(0, trainable=False, name="global_step")
+
     training_iterator, training_buckets, vocabulary = prepare_data()
-    training_graphs = build_training_graphs(training_buckets)
+    training_graphs = build_training_graphs(training_buckets, global_step)
 
     summary_op = tf.merge_all_summaries()
     no_op = tf.constant(0.0)
 
-    sv = tf.train.Supervisor(logdir=FLAGS.logdir,
+    sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_step,
                              summary_op=None)
 
     with sv.managed_session(FLAGS.master) as sess:
@@ -136,7 +158,7 @@ def main():
                             do_summary)
 
             if do_summary:
-                sv.summary_computed(sess, ret[-1])
+                sv.summary_computed(sess, ret)
 
 
 
