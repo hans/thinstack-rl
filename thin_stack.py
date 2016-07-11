@@ -79,6 +79,7 @@ class ThinStack(object):
         self.transitions = [tf.placeholder(tf.int32, (self.batch_size,), name="transitions_%i" % t)
                             for t in range(self.num_timesteps)]
 
+        # TODO: Make relationship between num_transitions and num_timesteps clearer
         self.num_transitions = tf.placeholder(tf.int32, (self.batch_size,), name="num_transitions")
 
     def _create_state(self):

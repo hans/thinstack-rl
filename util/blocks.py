@@ -1,5 +1,4 @@
 import tensorflow as tf
-from tensorflow.python.framework import dtypes
 from tensorflow.contrib.layers.python import layers
 
 def Linear(args, output_dim, bias=True, bias_init=0.0, scope=None):
@@ -33,8 +32,8 @@ def Linear(args, output_dim, bias=True, bias_init=0.0, scope=None):
     return result + b
 
 
-def HeKaimingInitializer(seed=None, dtype=dtypes.float32):
-    # This is the default behavior: 
+def HeKaimingInitializer(seed=None, dtype=tf.float32):
+    # This is the default behavior:
     return layers.initializers.variance_scaling_initializer(seed=seed, dtype=dtype)
 
 
