@@ -16,7 +16,7 @@ class ThinStackTestCase(tf.test.TestCase):
         self.vocab_size = vocab_size = 10
         self.seq_length = seq_length
 
-        compose_fn = lambda x, y, h: x + y
+        compose_fn = lambda (x, y), *ext: x + y
         tracking_fn = lambda *xs: xs[0]
         transition_fn = None
 

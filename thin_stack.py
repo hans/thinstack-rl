@@ -143,7 +143,7 @@ class ThinStack(object):
 
         # Compute new recurrent and recursive values.
         tracking_value_ = self.tracking_fn(self.tracking_value, stack1, stack2, buff_top)
-        reduce_value = self.compose_fn(stack1, stack2, tracking_value_)
+        reduce_value = self.compose_fn((stack1, stack2), tracking_value_)
 
         if self.transition_fn is not None:
             p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buff_top])
@@ -208,7 +208,7 @@ def main():
         return [[i for j in range(embedding_dim)] for i in range(vocab_size)]
 
     with tf.variable_scope("m", initializer=util.HeKaimingInitializer()):
-        compose_fn = lambda x, y, h: x + y
+        compose_fn = lambda (x, y), *ext: x + y
         tracking_fn = lambda *xs: xs[0]
         def transition_fn(*xs):
             return [[-10., -10.] for i in range(3)]

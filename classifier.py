@@ -31,7 +31,7 @@ def build_model(num_timesteps):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
         tracking_fn = lambda *xs: xs[0]
-        compose_fn = lambda x, y, h: util.Linear([x, y, h], FLAGS.model_dim)
+        compose_fn = util.TreeLSTMLayer
         def transition_fn(*xs):
             """Return random logits."""
             return tf.random_uniform((FLAGS.batch_size, 2), minval=-10, maxval=10)
@@ -58,7 +58,7 @@ def prepare_data():
                                  sentence_pair_data=sentence_pair_data)
 
     # TODO customizable
-    buckets = [11]#[5, 11]
+    buckets = [9, 21]
     bucketed_data = util.data.PadAndBucket(data, buckets,
                                            sentence_pair_data=sentence_pair_data)
 
@@ -74,7 +74,7 @@ def prepare_data():
 
 def build_training_graphs(buckets):
     graphs = {}
-    opt = tf.train.MomentumOptimizer(0.01, 0.9)
+    opt = tf.train.MomentumOptimizer(0.001, 0.9)
 
     for i, num_timesteps in enumerate(buckets):
         with tf.variable_scope("train/", reuse=i > 0):
