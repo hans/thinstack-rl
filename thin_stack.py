@@ -20,13 +20,13 @@ class ThinStack(object):
     def __init__(self, compose_fn, tracking_fn, transition_fn, batch_size,
                  vocab_size, num_timesteps, model_dim, embedding_dim,
                  tracking_dim, embeddings=None, embedding_initializer=None,
-                 scope=None):
+                 embedding_project_fn=None, scope=None):
         assert num_timesteps % 2 == 1, "Require odd number of timesteps for binary SR parser"
 
         self.compose_fn = compose_fn
         self.tracking_fn = tracking_fn
-
         self.transition_fn = transition_fn
+        self.embedding_project_fn = embedding_project_fn
 
         self.batch_size = batch_size
         self.vocab_size = vocab_size
@@ -168,8 +168,9 @@ class ThinStack(object):
         # Look up word embeddings and flatten for easy indexing with gather
         self.buff_embeddings = tf.nn.embedding_lookup(self.embeddings, self.buff)
         self.buff_embeddings = tf.reshape(self.buff_embeddings, (-1, self.embedding_dim))
-        # TODO: embedding projection / dropout / BN / etc.
-        assert self.embedding_dim == self.model_dim, "embedding projection not yet supported"
+        if self.embedding_project_fn:
+            self.buff_embeddings = self.embedding_project_fn(self.buff_embeddings)
+        assert self.buff_embeddings.get_shape().as_list()[1] == self.model_dim
 
         # Storage for p(transition_t) and sampled transition information
         self.p_transitions = [None] * self.num_timesteps
