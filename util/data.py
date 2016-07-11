@@ -49,7 +49,7 @@ def TokensToIDs(vocabulary, dataset, sentence_pair_data=False):
             unk_id = vocabulary[UNK_TOKEN]
             for example in dataset:
                 example[key] = [vocabulary.get(token, unk_id)
-                                     for token in example[key]]
+                                for token in example[key]]
         else:
             for example in dataset:
                 example[key] = [vocabulary[token]
@@ -132,6 +132,18 @@ def MakeTrainingIterator(sources, batch_size):
             batch_indices = order[start:start + batch_size]
             yield tuple(source[batch_indices] for source in sources)
     return data_iter()
+
+
+def MakeBucketedTrainingIterator(bucketed_sources, batch_size, selector=None):
+    if selector is None:
+        buckets = bucketed_sources.keys()
+        selector = lambda: random.choice(buckets)
+
+    iterators = {length: MakeTrainingIterator(bucket, batch_size)
+                 for length, bucket in bucketed_sources.iteritems()}
+    while True:
+        choice = selector()
+        yield choice, next(iterators[choice])
 
 
 def MakeEvalIterator(sources, batch_size):

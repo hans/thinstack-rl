@@ -11,7 +11,7 @@ import util
 # is only used non-destructively.
 @tf.RegisterGradient("ScatterUpdate")
 def _scatter_update_grad(op, grad):
-    idx = op.inputs[1]
+    idxs = op.inputs[1]
     return None, None, tf.gather(grad, idxs)
 
 
@@ -140,10 +140,9 @@ class ThinStack(object):
 
     def _step(self, t, transitions_t):
         stack1, stack2, buff_top = self._lookup(t)
-        # stack1 = tf.Print(stack1, [stack1, t])
 
         # Compute new recurrent and recursive values.
-        tracking_value_ = self.tracking_fn([self.tracking_value, stack1, stack2, buff_top])
+        tracking_value_ = self.tracking_fn(self.tracking_value, stack1, stack2, buff_top)
         reduce_value = self.compose_fn(stack1, stack2, tracking_value_)
 
         if self.transition_fn is not None:
@@ -158,8 +157,6 @@ class ThinStack(object):
         else:
             p_transitions_t = None
 
-        transitions_t = tf.Print(transitions_t, [transitions_t, t])
-
         stack_, queue_, cursors_ = \
                 self._update_stack(t, buff_top, reduce_value, transitions_t)
         buff_cursors_ = self.buff_cursors + 1 - transitions_t
@@ -170,8 +167,9 @@ class ThinStack(object):
     def forward(self):
         # Look up word embeddings and flatten for easy indexing with gather
         self.buff_embeddings = tf.nn.embedding_lookup(self.embeddings, self.buff)
-        self.buff_embeddings = tf.reshape(self.buff_embeddings, (-1, self.model_dim))
+        self.buff_embeddings = tf.reshape(self.buff_embeddings, (-1, self.embedding_dim))
         # TODO: embedding projection / dropout / BN / etc.
+        assert self.embedding_dim == self.model_dim, "embedding projection not yet supported"
 
         # Storage for p(transition_t) and sampled transition information
         self.p_transitions = [None] * self.num_timesteps

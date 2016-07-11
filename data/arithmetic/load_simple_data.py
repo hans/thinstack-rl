@@ -19,13 +19,14 @@ NUMBERS = range(-10, 11)
 OUTPUTS = range(-100, 101)
 NUM_CLASSES = len(OUTPUTS)
 
-FIXED_VOCABULARY = {str(x): x + min(NUMBERS) for x in NUMBERS}
+FIXED_VOCABULARY = {str(x): x - min(NUMBERS) for x in NUMBERS}
 FIXED_VOCABULARY.update({
     PADDING_TOKEN: len(FIXED_VOCABULARY) + 0,
     "+": len(FIXED_VOCABULARY) + 1,
     "-": len(FIXED_VOCABULARY) + 2
 })
 assert len(set(FIXED_VOCABULARY.values())) == len(FIXED_VOCABULARY.values())
+assert max(FIXED_VOCABULARY.values()) == len(FIXED_VOCABULARY) - 1
 
 LABEL_MAP = {str(x): x - min(OUTPUTS) for x in OUTPUTS}
 
