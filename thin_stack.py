@@ -65,15 +65,16 @@ class ThinStack(object):
         else:
             shape = embeddings.get_shape()
             shape.assert_same_rank(embedding_shape)
-            assert shape.as_list() == embedding_shape, \
-                    "Provided embeddings must be of shape %s" % embedding_shape
+            assert tuple(shape.as_list()) == embedding_shape, \
+                    "Provided embeddings must be of shape %s; got %s" \
+                    % (embedding_shape, shape)
 
         self.embeddings = embeddings
 
     def _create_placeholders(self):
         # int embedding index batch, buff_size * batch_size
         self.buff = tf.placeholder(tf.int32, (self.buff_size, self.batch_size),
-                                     name="buff")
+                                   name="buff")
         # list of num_timesteps-many (batch_size) int batches
         # Used for loss computation only.
         self.transitions = [tf.placeholder(tf.int32, (self.batch_size,), name="transitions_%i" % t)
