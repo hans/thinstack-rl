@@ -177,7 +177,8 @@ class ThinStack(object):
             if t > 0:
                 self._scope.reuse_variables()
 
-            ret = self._step(t, transitions_t)
+            with tf.control_dependencies([self.stack, self.queue]):
+                ret = self._step(t, transitions_t)
 
             self.stack, self.queue, self.cursors, self.buff_cursors = ret[:4]
             self.tracking_value, self.p_transitions[t], self.sampled_transitions[t] = ret[4:]
