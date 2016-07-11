@@ -129,7 +129,7 @@ def run_batch(sess, graph, batch_data, do_summary=True):
 
     # Sub in a no-op for summary op if we don't want to compute summaries.
     if not do_summary:
-        summary_op = tf.constant(0.0)
+        summary_op = train_op
 
     fetches = [train_op, summary_op]
     _, summary = sess.run(fetches, feed)
