@@ -43,6 +43,8 @@ def build_model(num_timesteps):
         logits = build_thin_stack_classifier(ts, FLAGS.num_classes)
 
         xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
+        xent_loss = tf.reduce_mean(xent_loss)
+        tf.scalar_summary(["xent_loss"], [xent_loss])
 
     return ts, logits, ys, xent_loss
 
@@ -77,40 +79,72 @@ def build_training_graphs(buckets):
     opt = tf.train.MomentumOptimizer(0.001, 0.9)
 
     for i, num_timesteps in enumerate(buckets):
+        summaries_so_far = set(tf.get_collection(tf.GraphKeys.SUMMARIES))
+
         with tf.variable_scope("train/", reuse=i > 0):
             ts, logits, ys, xent_loss = build_model(num_timesteps)
             train_op = opt.minimize(xent_loss)
 
-            graphs[num_timesteps] = (ts, logits, ys, xent_loss, train_op)
+            new_summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
+            new_summary_ops = set(new_summary_ops) - summaries_so_far
+            summary_op = tf.merge_summary(list(new_summary_ops))
+
+            graphs[num_timesteps] = (ts, logits, ys, xent_loss, train_op, summary_op)
 
     return graphs
+
+
+def run_batch(sess, graph, batch_data, do_summary=True):
+    ts, logits, ys, xent_loss, train_op, summary_op = graph
+    ts.reset(sess)
+
+    X_batch, transitions_batch, y_batch, num_transitions_batch = batch_data
+    X_batch, transitions_batch = X_batch.T, transitions_batch.T
+
+    feed = {ts.transitions[t]: transitions_batch[t]
+            for t in range(ts.num_timesteps)}
+    feed[ts.buff] = X_batch
+    feed[ts.num_transitions] = num_transitions_batch
+    feed[ys] = y_batch
+
+    # Sub in a no-op for summary op if we don't want to compute summaries.
+    if not do_summary:
+        summary_op = tf.constant(0.0)
+
+    fetches = [xent_loss, train_op, summary_op]
+    xent_loss_batch, _, summary = sess.run(fetches, feed)
+    return xent_loss_batch, summary
 
 
 def main():
     training_iterator, training_buckets, vocabulary = prepare_data()
     training_graphs = build_training_graphs(training_buckets)
 
-    sess = tf.Session()
-    sess.run(tf.initialize_all_variables())
+    summary_op = tf.merge_all_summaries()
+    no_op = tf.constant(0.0)
 
-    for bucket, (X_batch, transitions_batch, y_batch, num_transitions_batch) in training_iterator:
-        ts, logits, ys, xent_loss, train_op = training_graphs[bucket]
-        ts.reset(sess)
+    sv = tf.train.Supervisor(logdir=FLAGS.logdir,
+                             summary_op=None)
 
-        X_batch, transitions_batch = X_batch.T, transitions_batch.T
+    with sv.managed_session(FLAGS.master) as sess:
+        for step, (bucket, batch_data) in enumerate(training_iterator):
+            if sv.should_stop():
+                break
 
-        feed = {ts.transitions[t]: transitions_batch[t]
-                for t in range(ts.num_timesteps)}
-        feed[ts.buff] = X_batch
-        feed[ts.num_transitions] = num_transitions_batch
-        feed[ys] = y_batch
+            do_summary = step % FLAGS.summary_step_interval == 0
+            ret = run_batch(sess, training_graphs[bucket], batch_data,
+                            do_summary)
 
-        xent_loss_batch, _ = sess.run([tf.reduce_mean(xent_loss), train_op], feed)
-        print xent_loss_batch
+            if do_summary:
+                sv.summary_computed(sess, ret[-1])
 
 
 
 if __name__ == '__main__':
+    gflags.DEFINE_string("master", "", "")
+    gflags.DEFINE_string("logdir", "/tmp/rl-stack", "")
+    gflags.DEFINE_integer("summary_step_interval", 100, "")
+
     gflags.DEFINE_integer("batch_size", 64, "")
     gflags.DEFINE_integer("vocab_size", 100, "")
     gflags.DEFINE_integer("seq_length", 29, "")
