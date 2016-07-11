@@ -147,7 +147,12 @@ class ThinStack(object):
         if self.transition_fn is not None:
             p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buff_top])
             sample_t = tf.multinomial(p_transitions_t, 1)
-            transitions_t = tf.to_int32(tf.squeeze(sample_t))
+
+            must_shift = tf.to_int32(self.cursors < 1)
+            must_reduce = tf.to_int32(self.buff_cursors >= (self.num_transitions + 1) / 2)
+            sample_mask = 1 - must_reduce - must_shift
+
+            transitions_t = tf.to_int32(tf.squeeze(sample_t)) * sample_mask + must_reduce
         else:
             p_transitions_t = None
 
@@ -206,11 +211,9 @@ def main():
         compose_fn = lambda x, y, h: x + y
         tracking_fn = lambda *xs: xs[0]
         def transition_fn(*xs):
-            """Return random logits."""
-            # logits = tf.random_uniform((batch_size, 2), minval=-10, maxval=10)
             return [[-10., -10.] for i in range(3)]
 
-        ts = ThinStack(compose_fn, tracking_fn, None, batch_size,
+        ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
                        vocab_size, num_timesteps, model_dim, embedding_dim,
                        tracking_dim, embedding_initializer=integer_embedding_initializer)
 
