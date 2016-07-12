@@ -8,14 +8,6 @@ import util
 from util import floaty
 
 
-# HACK: Set up gradient of the ScatterUpdate op. In this script ScatterUpdate
-# is only used non-destructively.
-@tf.RegisterGradient("FloatyScatterUpdate")
-def _floaty_scatter_update_grad(op, grad):
-    idxs = op.inputs[1]
-    return None, None, floaty.floaty_gather(grad, idxs)
-
-
 class ThinStack(object):
 
     def __init__(self, compose_fn, tracking_fn, transition_fn, batch_size,
