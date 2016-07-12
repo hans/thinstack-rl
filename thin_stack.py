@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 
 import util
-from util import floaty
+from util.floaty_ops import floaty_gather, floaty_scatter_update
 
 
 class ThinStack(object):
@@ -114,8 +114,8 @@ class ThinStack(object):
         queue_idxs = cursors_next * self.batch_size + self.batch_range
         # TODO: enforce transition validity instead of this hack
         queue_idxs = tf.maximum(queue_idxs, 0)
-        queue_next = floaty.floaty_scatter_update(self.queue, queue_idxs,
-                                                  tf.fill((self.batch_size,), float(t)))
+        queue_next = floaty_scatter_update(self.queue, queue_idxs,
+                                           tf.fill((self.batch_size,), float(t)))
 
         return stack_next, queue_next, cursors_next
 
@@ -124,13 +124,13 @@ class ThinStack(object):
         stack1 = tf.gather(self.stack, tf.maximum(0, stack1_ptrs))
 
         queue_ptrs = (self.cursors - 1) * self.batch_size + self.batch_range
-        stack2_ptrs = floaty.floaty_gather(self.queue, tf.maximum(0.0, queue_ptrs)) * self.batch_size + self.batch_range
-        stack2 = floaty.floaty_gather(self.stack, stack2_ptrs)
+        stack2_ptrs = floaty_gather(self.queue, tf.maximum(0.0, queue_ptrs)) * self.batch_size + self.batch_range
+        stack2 = floaty_gather(self.stack, stack2_ptrs)
 
         buff_idxs = (self.buff_cursors * self.batch_size) + self.batch_range
         # TODO: enforce transition validity instead of this hack
         buff_idxs = tf.maximum(0.0, tf.minimum(buff_idxs, (self.buff_size * self.batch_size) - 1))
-        buff_top = floaty.floaty_gather(self.buff_embeddings, buff_idxs)
+        buff_top = floaty_gather(self.buff_embeddings, buff_idxs)
         return stack1, stack2, buff_top
 
     def _step(self, t, transitions_t):
