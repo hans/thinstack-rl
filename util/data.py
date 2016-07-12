@@ -139,9 +139,11 @@ def MakeTrainingIterator(sources, batch_size):
 
 def MakeBucketedTrainingIterator(bucketed_sources, batch_size, selector=None):
     if selector is None:
-        # TODO: This will oversample examples from smaller buckets. Fix!
         buckets = bucketed_sources.keys()
-        selector = lambda: random.choice(buckets)
+        total_size = sum([len(bucketed_sources[bucket][1]) for bucket in bucketed_sources])
+        bucket_sampling_p = [float(len(bucketed_sources[bucket][1]))/total_size
+                             for bucket in bucketed_sources]
+        selector = lambda: random.choice(buckets, p=bucket_sampling_p)
 
     iterators = {length: MakeTrainingIterator(bucket, batch_size)
                  for length, bucket in bucketed_sources.iteritems()}
