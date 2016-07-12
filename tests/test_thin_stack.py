@@ -40,7 +40,7 @@ class ThinStackTestCase(tf.test.TestCase):
         transitions = np.array([
             [0, 0, 0, 1, 1],
             [0, 0, 1, 0, 1]
-        ], dtype=np.int32)
+        ], dtype=np.float32)
 
         num_transitions = np.array([4, 4], dtype=np.int32)
 

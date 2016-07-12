@@ -71,7 +71,7 @@ class ThinStack(object):
                                    name="buff")
         # list of num_timesteps-many (batch_size) int batches
         # Used for loss computation only.
-        self.transitions = [tf.placeholder(tf.int32, (self.batch_size,), name="transitions_%i" % t)
+        self.transitions = [tf.placeholder(tf.float32, (self.batch_size,), name="transitions_%i" % t)
                             for t in range(self.num_timesteps)]
 
         # TODO: Make relationship between num_transitions and num_timesteps clearer
