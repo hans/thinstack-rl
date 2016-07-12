@@ -144,7 +144,7 @@ def MakeBucketedTrainingIterator(bucketed_sources, batch_size, selector=None):
         bucket_sampling_p = [float(len(bucketed_sources[bucket][1]))/total_size
                              for bucket in buckets]
         def selector():
-            bucket_idx = np.random.multinomial(1, bucket_sampling_p)
+            bucket_idx = np.random.choice(len(buckets), p=bucket_sampling_p)
             return bucketed_sources[buckets[bucket_idx]]
 
     iterators = {length: MakeTrainingIterator(bucket, batch_size)
