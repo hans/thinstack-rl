@@ -17,7 +17,7 @@ try:
         return None, None, floaty.floaty_gather(grad, idxs)
 
 except:
-    print "Warning: Floaty library could not be loaded. Falling back to slow floaty ops."
+    print "Warning: Compiled floaty library could not be loaded. Falling back to slow floaty ops."
 
     class floaty:
         @staticmethod

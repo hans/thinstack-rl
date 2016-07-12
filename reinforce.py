@@ -63,7 +63,7 @@ def reinforce_episodic_gradients(logits, sampled_outputs, rewards,
     flat_softmaxes = [tf.reshape(log_softmax_t, (-1,))
                       for log_softmax_t in log_softmaxes]
     lookup_offset = tf.range(batch_size) * num_classes
-    log_p_sampled = [tf.gather(log_softmax_t, sampled_outputs_t + lookup_offset)
+    log_p_sampled = [tf.gather(log_softmax_t, tf.to_int32(sampled_outputs_t) + lookup_offset)
                      for log_softmax_t, sampled_outputs_t
                      in zip(flat_softmaxes, sampled_outputs)]
 
