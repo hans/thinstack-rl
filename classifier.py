@@ -36,7 +36,7 @@ def build_rewards(classifier_logits, ys):
 
 
 def build_model(num_timesteps):
-    with tf.variable_scope("m", initializer=util.HeKaimingInitializer()):
+    with tf.variable_scope("Model", initializer=util.HeKaimingInitializer()):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
         tracking_fn = lambda *xs: xs[0]
@@ -80,8 +80,8 @@ def prepare_data():
                                  sentence_pair_data=sentence_pair_data)
 
     # TODO customizable
-    buckets = [21]#[9, 21]
-    bucketed_data = util.data.PadAndBucket(data, buckets,
+    buckets = [7, 21]
+    bucketed_data = util.data.PadAndBucket(data, buckets, FLAGS.batch_size,
                                            sentence_pair_data=sentence_pair_data)
 
     # Convert each bucket into TF-friendly arrays
@@ -149,6 +149,7 @@ def main():
                              summary_op=None)
 
     with sv.managed_session(FLAGS.master) as sess:
+        print >> sys.stderr, 'Training.'
         for step, (bucket, batch_data) in enumerate(training_iterator):
             if sv.should_stop():
                 break

@@ -57,7 +57,7 @@ def TokensToIDs(vocabulary, dataset, sentence_pair_data=False):
     return dataset
 
 
-def PadAndBucket(dataset, lengths, sentence_pair_data=False):
+def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
     """Pad sequences and categorize them into different length bins."""
 
     if sentence_pair_data:
@@ -92,6 +92,9 @@ def PadAndBucket(dataset, lengths, sentence_pair_data=False):
             example[tokens_key] += [0] * (max_tokens - len(example[tokens_key]))
 
             buckets[nearest_bucket].append(example)
+
+    for bucket in buckets:
+        assert len(buckets[bucket]) >= batch_size, "Bucket smaller than batch size: " + str(bucket)
 
     return buckets
 
@@ -136,6 +139,7 @@ def MakeTrainingIterator(sources, batch_size):
 
 def MakeBucketedTrainingIterator(bucketed_sources, batch_size, selector=None):
     if selector is None:
+        # TODO: This will oversample examples from smaller buckets. Fix!
         buckets = bucketed_sources.keys()
         selector = lambda: random.choice(buckets)
 

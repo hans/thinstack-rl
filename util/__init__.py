@@ -4,7 +4,10 @@ from util.data import *
 
 # Load custom TF module.
 import os
+import sys
+
 import tensorflow as tf
+
 floaty_path = os.path.join(os.path.dirname(__file__), "..", "lib", "floaty_ops.so")
 try:
     floaty = tf.load_op_library(floaty_path)
@@ -17,7 +20,7 @@ try:
         return None, None, floaty.floaty_gather(grad, idxs)
 
 except:
-    print "Warning: Compiled floaty library could not be loaded. Falling back to slow floaty ops."
+    print >> sys.stderr, "Warning: Compiled floaty library could not be loaded. Falling back to slow floaty ops."
 
     class floaty:
         @staticmethod
