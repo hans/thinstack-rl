@@ -5,14 +5,15 @@ import numpy as np
 import tensorflow as tf
 
 import util
+from util import floaty
 
 
 # HACK: Set up gradient of the ScatterUpdate op. In this script ScatterUpdate
 # is only used non-destructively.
-@tf.RegisterGradient("ScatterUpdate")
-def _scatter_update_grad(op, grad):
+@tf.RegisterGradient("FloatyScatterUpdate")
+def _floaty_scatter_update_grad(op, grad):
     idxs = op.inputs[1]
-    return None, None, tf.gather(grad, idxs)
+    return None, None, floaty.floaty_gather(grad, idxs)
 
 
 class ThinStack(object):
@@ -38,7 +39,8 @@ class ThinStack(object):
         self.tracking_dim = tracking_dim
 
         # Helpers
-        self.batch_range = tf.range(self.batch_size)
+        self.batch_range_i = tf.range(self.batch_size)
+        self.batch_range = tf.to_float(self.batch_range_i)
 
         with tf.variable_scope(scope or "ts") as scope:
             self._scope = scope
@@ -51,7 +53,7 @@ class ThinStack(object):
             self.forward()
 
             # Look up stack tops based on per-example length input
-            top_idxs = (self.num_transitions - 1) * self.batch_size + self.batch_range
+            top_idxs = (self.num_transitions - 1) * self.batch_size + self.batch_range_i
             self.final_representations = tf.gather(self.stack, top_idxs)
 
             # Reshape the stack into a more intuitive 3D for indexing.
@@ -90,12 +92,12 @@ class ThinStack(object):
         # tensors. `stack_size` many blocks of `batch_size` values
         self.stack = tf.Variable(tf.zeros((self.stack_size * self.batch_size, self.model_dim), dtype=tf.float32),
                                  trainable=False, name="stack")
-        self.queue = tf.Variable(tf.zeros((self.stack_size * self.batch_size,), dtype=tf.int32),
+        self.queue = tf.Variable(tf.zeros((self.stack_size * self.batch_size,), dtype=tf.float32),
                                  trainable=False, name="queue")
 
-        self.buff_cursors = tf.Variable(tf.zeros((self.batch_size,), dtype=tf.int32),
+        self.buff_cursors = tf.Variable(tf.zeros((self.batch_size,), dtype=tf.float32),
                                           trainable=False, name="buff_cursors")
-        self.cursors = tf.Variable(tf.ones((self.batch_size,), dtype=tf.int32) * - 1,
+        self.cursors = tf.Variable(tf.ones((self.batch_size,), dtype=tf.float32) * - 1,
                                    trainable=False, name="cursors")
 
         # TODO make parameterizable
@@ -109,10 +111,10 @@ class ThinStack(object):
         self.variable_initializer = tf.initialize_variables(aux_vars)
 
     def _update_stack(self, t, shift_value, reduce_value, transitions_t):
-        mask = tf.to_float(tf.expand_dims(transitions_t, 1))
+        mask = tf.expand_dims(transitions_t, 1)
         top_next = mask * reduce_value + (1 - mask) * shift_value
 
-        stack_idxs = t * self.batch_size + self.batch_range
+        stack_idxs = t * self.batch_size + self.batch_range_i
         stack_next = tf.scatter_update(self.stack, stack_idxs, top_next)
 
         cursors_next = self.cursors + (transitions_t * -1 + (1 - transitions_t) * 1)
@@ -120,22 +122,23 @@ class ThinStack(object):
         queue_idxs = cursors_next * self.batch_size + self.batch_range
         # TODO: enforce transition validity instead of this hack
         queue_idxs = tf.maximum(queue_idxs, 0)
-        queue_next = tf.scatter_update(self.queue, queue_idxs, tf.fill((self.batch_size,), t))
+        queue_next = floaty.floaty_scatter_update(self.queue, queue_idxs,
+                                                  tf.fill((self.batch_size,), float(t)))
 
         return stack_next, queue_next, cursors_next
 
     def _lookup(self, t):
-        stack1_ptrs = (t - 1) * self.batch_size + self.batch_range
+        stack1_ptrs = (t - 1) * self.batch_size + self.batch_range_i
         stack1 = tf.gather(self.stack, tf.maximum(0, stack1_ptrs))
 
         queue_ptrs = (self.cursors - 1) * self.batch_size + self.batch_range
-        stack2_ptrs = tf.to_int32(tf.gather(self.queue, tf.maximum(0, queue_ptrs))) * self.batch_size + self.batch_range
-        stack2 = tf.gather(self.stack, stack2_ptrs)
+        stack2_ptrs = floaty.floaty_gather(self.queue, tf.maximum(0.0, queue_ptrs)) * self.batch_size + self.batch_range
+        stack2 = floaty.floaty_gather(self.stack, stack2_ptrs)
 
         buff_idxs = (self.buff_cursors * self.batch_size) + self.batch_range
         # TODO: enforce transition validity instead of this hack
-        buff_idxs = tf.maximum(0, tf.minimum(buff_idxs, (self.buff_size * self.batch_size) - 1))
-        buff_top = tf.gather(self.buff_embeddings, buff_idxs)
+        buff_idxs = tf.maximum(0.0, tf.minimum(buff_idxs, (self.buff_size * self.batch_size) - 1))
+        buff_top = floaty.floaty_gather(self.buff_embeddings, buff_idxs)
         return stack1, stack2, buff_top
 
     def _step(self, t, transitions_t):
@@ -147,13 +150,13 @@ class ThinStack(object):
 
         if self.transition_fn is not None:
             p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buff_top])
-            sample_t = tf.multinomial(p_transitions_t, 1)
+            sample_t = tf.to_float(tf.multinomial(p_transitions_t, 1))
 
-            must_shift = tf.to_int32(self.cursors < 1)
-            must_reduce = tf.to_int32(self.buff_cursors >= (self.num_transitions + 1) / 2)
+            must_shift = tf.to_float(self.cursors < 1)
+            must_reduce = tf.to_float(self.buff_cursors >= tf.to_float(self.num_transitions + 1) / 2.0)
             sample_mask = 1 - must_reduce - must_shift
 
-            transitions_t = tf.to_int32(tf.squeeze(sample_t)) * sample_mask + must_reduce
+            transitions_t = tf.squeeze(sample_t) * sample_mask + must_reduce
         else:
             p_transitions_t = None
 
