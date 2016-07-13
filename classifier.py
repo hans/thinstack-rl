@@ -114,7 +114,7 @@ def build_training_graphs(buckets, global_step):
     return graphs
 
 
-def run_batch(sess, graph, batch_data, do_summary=True):
+def run_batch(sess, graph, batch_data, do_summary=True, profiler=None):
     ts, logits, ys, train_op, summary_op = graph
     ts.reset(sess)
 
@@ -132,7 +132,13 @@ def run_batch(sess, graph, batch_data, do_summary=True):
         summary_op = train_op
 
     fetches = [train_op, summary_op]
-    _, summary = sess.run(fetches, feed)
+
+    kwargs = {}
+    if profiler is not None:
+        kwargs["options"] = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+        kwargs["run_metadata"] = profiler
+
+    _, summary = sess.run(fetches, feed, **kwargs)
     return summary
 
 
@@ -152,6 +158,7 @@ def main():
     sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_step,
                              saver=saver, summary_op=None)
 
+    run_metadata = tf.RunMetadata()
     with sv.managed_session(FLAGS.master) as sess:
         print >> sys.stderr, 'Training.'
         for step, (bucket, batch_data) in zip(xrange(FLAGS.training_steps), training_iterator):
@@ -159,11 +166,18 @@ def main():
                 break
 
             do_summary = step % FLAGS.summary_step_interval == 0
+            profiler = run_metadata if FLAGS.profile and do_summary else None
             ret = run_batch(sess, training_graphs[bucket], batch_data,
-                            do_summary)
+                            do_summary, profiler)
 
             if do_summary:
                 sv.summary_computed(sess, ret)
+
+    if FLAGS.profile:
+        from tensorflow.python.client import timeline
+        trace = timeline.Timeline(step_stats=run_metadata.step_stats)
+        with open("timeline.ctf.json", "w") as timeline_f:
+            timeline_f.write(trace.generate_chrome_trace_format())
 
 
 
@@ -172,6 +186,7 @@ if __name__ == '__main__':
     gflags.DEFINE_string("logdir", "/tmp/rl-stack", "")
     gflags.DEFINE_integer("summary_step_interval", 100, "")
     gflags.DEFINE_integer("training_steps", 10, "")
+    gflags.DEFINE_boolean("profile", False, "")
 
     gflags.DEFINE_integer("batch_size", 64, "")
     gflags.DEFINE_integer("vocab_size", 100, "")
