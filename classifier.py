@@ -154,7 +154,7 @@ def main():
 
     with sv.managed_session(FLAGS.master) as sess:
         print >> sys.stderr, 'Training.'
-        for step, (bucket, batch_data) in enumerate(training_iterator):
+        for step, (bucket, batch_data) in zip(xrange(FLAGS.training_steps), training_iterator):
             if sv.should_stop():
                 break
 
@@ -171,6 +171,7 @@ if __name__ == '__main__':
     gflags.DEFINE_string("master", "", "")
     gflags.DEFINE_string("logdir", "/tmp/rl-stack", "")
     gflags.DEFINE_integer("summary_step_interval", 100, "")
+    gflags.DEFINE_integer("training_steps", 10, "")
 
     gflags.DEFINE_integer("batch_size", 64, "")
     gflags.DEFINE_integer("vocab_size", 100, "")
