@@ -107,8 +107,9 @@ class ThinStack(object):
         mask = tf.expand_dims(transitions_t, 1)
         top_next = mask * reduce_value + (1 - mask) * shift_value
 
-        stack_idxs = t * self.batch_size + self.batch_range_i
-        stack_next = tf.scatter_update(self.stack, stack_idxs, top_next)
+        stack_idxs = float(t) * self.batch_size + self.batch_range
+        stack_next = floaty_scatter_update(self.stack, stack_idxs, top_next,
+                                           name="stack_update")
 
         cursors_next = self.cursors + (transitions_t * -1 + (1 - transitions_t) * 1)
 
@@ -116,17 +117,18 @@ class ThinStack(object):
         # TODO: enforce transition validity instead of this hack
         queue_idxs = tf.maximum(queue_idxs, 0)
         queue_next = floaty_scatter_update(self.queue, queue_idxs,
-                                           tf.fill((self.batch_size,), float(t)))
+                                           tf.fill((self.batch_size,), float(t)),
+                                           name="queue_update")
 
         return stack_next, queue_next, cursors_next
 
     def _lookup(self, t):
-        stack1_ptrs = (t - 1) * self.batch_size + self.batch_range_i
-        stack1 = tf.gather(self.stack, tf.maximum(0, stack1_ptrs))
+        stack1_ptrs = float(t - 1) * self.batch_size + self.batch_range
+        stack1 = floaty_gather(self.stack, tf.maximum(0.0, stack1_ptrs), name="stack1_fetch")
 
         queue_ptrs = (self.cursors - 1) * self.batch_size + self.batch_range
         stack2_ptrs = floaty_gather(self.queue, tf.maximum(0.0, queue_ptrs)) * self.batch_size + self.batch_range
-        stack2 = floaty_gather(self.stack, stack2_ptrs)
+        stack2 = floaty_gather(self.stack, stack2_ptrs, name="stack2_fetch")
 
         buff_idxs = (self.buff_cursors * self.batch_size) + self.batch_range
         # TODO: enforce transition validity instead of this hack
