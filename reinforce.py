@@ -22,7 +22,7 @@ def ewma_baseline(rewards, tau=0.9):
         return avg_reward
 
 
-def reinforce_episodic_gradients(logits, sampled_outputs, rewards,
+def reinforce_episodic_gradients(logits, sampled_outputs, rewards, lengths=None,
                                  baseline_fn=ewma_baseline, params=None):
     """
     Calculate REINFORCE gradients given a batch of single episodic rewards.
@@ -36,6 +36,9 @@ def reinforce_episodic_gradients(logits, sampled_outputs, rewards,
             for each example
         rewards: float batch `batch_size` describing episodic reward per
             example
+        lengths: `None` or a `batch_size` int batch describing length of each
+            sequence. If `None`, then all sequences are assumed to have the
+            same length `num_timesteps`
         baseline_fn:
         params:
 
@@ -71,8 +74,16 @@ def reinforce_episodic_gradients(logits, sampled_outputs, rewards,
     log_p_sampled = [tf.expand_dims(log_p_sampled_t, 1)
                      for log_p_sampled_t in log_p_sampled]
     log_p_sampled = tf.concat(1, log_p_sampled)
+
+    if lengths is not None:
+        # For each example, zero out probabilities after i > example_length
+        mask = tf.tile(tf.expand_dims(tf.range(num_timesteps), 0), (batch_size, 1))
+        mask = tf.to_float(tf.greater(tf.expand_dims(lengths, 1), mask))
+        log_p_sampled *= mask
+
     # Calculate p(sampled_output) by chain rule. We can merge these ahead of
     # time, since we only have a single episode-level reward.
+    # (batch_size,) batch
     log_p_sampled = tf.reduce_sum(log_p_sampled, 1)
 
     # Main REINFORCE gradient equation.
