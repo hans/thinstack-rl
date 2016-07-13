@@ -145,8 +145,12 @@ def main():
     summary_op = tf.merge_all_summaries()
     no_op = tf.constant(0.0)
 
+    savable_variables = set(tf.all_variables())
+    for graph in training_graphs.values():
+        savable_variables -= set(graph[0]._aux_vars)
+    saver = tf.train.Saver(savable_variables)
     sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_step,
-                             summary_op=None)
+                             saver=saver, summary_op=None)
 
     with sv.managed_session(FLAGS.master) as sess:
         print >> sys.stderr, 'Training.'

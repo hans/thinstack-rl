@@ -99,9 +99,9 @@ class ThinStack(object):
 
         # Create an Op which will (re-)initialize the auxiliary variables
         # declared above.
-        aux_vars = [self.stack, self.queue, self.buff_cursors, self.cursors,
-                    self.tracking_value]
-        self.variable_initializer = tf.initialize_variables(aux_vars)
+        self._aux_vars = [self.stack, self.queue, self.buff_cursors, self.cursors,
+                          self.tracking_value]
+        self.variable_initializer = tf.initialize_variables(self._aux_vars)
 
     def _update_stack(self, t, shift_value, reduce_value, transitions_t):
         mask = tf.expand_dims(transitions_t, 1)
