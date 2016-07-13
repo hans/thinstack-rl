@@ -43,5 +43,5 @@ def _floaty_scatter_update_shape(op):
 @tf.RegisterGradient("FloatyScatterUpdate")
 def _floaty_scatter_update_grad(op, grad):
     idxs = op.inputs[1]
-    with tf.device("/gpu:0"):
-        return None, None, floaty_gather(grad, idxs)
+    grad_updates = floaty_gather(grad, idxs)
+    return None, None, grad_updates
