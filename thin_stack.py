@@ -54,8 +54,9 @@ class ThinStack(object):
     def _create_params(self, embeddings, embedding_initializer):
         embedding_shape = (self.vocab_size, self.embedding_dim)
         if embeddings is None:
-            embeddings = tf.get_variable("embeddings", embedding_shape,
-                    initializer=embedding_initializer)
+            with tf.device("/cpu:0"):
+                embeddings = tf.get_variable("embeddings", embedding_shape,
+                        initializer=embedding_initializer)
         else:
             shape = embeddings.get_shape()
             shape.assert_same_rank(embedding_shape)
