@@ -80,27 +80,20 @@ def build_sentence_pair_model(num_timesteps, classifier_fn, initial_embeddings=N
 
         assert FLAGS.model_dim % 2 == 0, "model_dim must be even; we're using LSTM memory cells which are divided in half"
 
-        scope_base_name = tf.get_variable_scope().name
         def embedding_project_fn(embeddings):
-            # Share scope across the two models. (==> shared embedding
-            # projection / BN weights)
-            if not hasattr(embedding_project_fn, "reuse"):
-                embedding_project_fn.reuse = False
-
-            with tf.variable_scope("/%s/embedding_project/",
-                                   reuse=embedding_project_fn.reuse):
-                print tf.get_variable_scope().name # DEV
-                if FLAGS.embedding_dim != FLAGS.model_dim:
-                    # Need to project embeddings to model dimension.
-                    embeddings = util.Linear(embeddings, FLAGS.model_dim, bias=False)
-                if FLAGS.embedding_batch_norm:
-                    embeddings = layers.batch_norm(embeddings, center=True, scale=True,
-                                                is_training=True)
-                if FLAGS.embedding_keep_rate < 1.0:
-                    embeddings = tf.nn.dropout(embeddings, FLAGS.embedding_keep_rate)
-
-            embedding_project_fn.reuse = True
+            if FLAGS.embedding_dim != FLAGS.model_dim:
+                # Need to project embeddings to model dimension.
+                embeddings = util.Linear(embeddings, FLAGS.model_dim, bias=False)
+            if FLAGS.embedding_batch_norm:
+                embeddings = layers.batch_norm(embeddings, center=True, scale=True,
+                                            is_training=True)
+            if FLAGS.embedding_keep_rate < 1.0:
+                embeddings = tf.nn.dropout(embeddings, FLAGS.embedding_keep_rate)
             return embeddings
+
+        # Share scope across the two models. (==> shared embedding
+        # projection / BN weights)
+        embedding_project_fn = tf.make_template("embedding_project", embedding_project_fn)
 
         ts_args = {
             "compose_fn": util.TreeLSTMLayer,
