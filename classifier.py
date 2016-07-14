@@ -220,6 +220,10 @@ def run_batch(sess, graph, batch_data, do_summary=True, profiler=None):
     for stack in graph.stacks:
         stack.reset(sess)
 
+    # each batch data element has leading batch axis
+    # X: (B, num_stacks, buffer_size)
+    # transitions: (B, num_stacks, num_timesteps)
+    # num_transitions: (B, num_stacks)
     X, transitions, num_transitions, ys = batch_data
 
     # Prepare feed dict
