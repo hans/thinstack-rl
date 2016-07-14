@@ -182,34 +182,43 @@ def MakeEvalIterator(sources, batch_size):
 
 def BucketToArrays(dataset, seq_length, sentence_pair_data=False, for_rnn=False):
     if sentence_pair_data:
-        X = np.transpose(np.array([[example["premise_tokens"] for example in dataset],
+        X = np.array([[example["premise_tokens"] for example in dataset],
                       [example["hypothesis_tokens"] for example in dataset]],
-                     dtype=np.int32), (1, 2, 0))
+                     dtype=np.int32)
         if for_rnn:
             # TODO(SB): Extend this clause to the non-pair case.
             transitions = np.zeros((len(dataset), 2, 0))
             num_transitions = np.zeros((len(dataset), 2))
         else:
-            transitions = np.transpose(np.array([[example["premise_transitions"] for example in dataset],
+            transitions = np.array([[example["premise_transitions"] for example in dataset],
                                     [example["hypothesis_transitions"] for example in dataset]],
-                                   dtype=np.int32), (1, 2, 0))
-            num_transitions = np.transpose(np.array(
+                                   dtype=np.int32)
+            num_transitions = np.array(
                 [[example["premise_len"] for example in dataset],
                  [example["hypothesis_len"] for example in dataset]],
-                dtype=np.int32), (1, 0))
+                dtype=np.int32)
     else:
-        X = np.array([example["tokens"] for example in dataset],
+        X = np.array([[example["tokens"] for example in dataset]],
                      dtype=np.int32)
-        transitions = np.array([example["transitions"] for example in dataset],
+        transitions = np.array([[example["transitions"] for example in dataset]],
                                dtype=np.int32)
-        num_transitions = np.array(
-            [example["len"] for example in dataset],
-            dtype=np.int32)
-        y = np.array(
-            [example["label"] for example in dataset],
-            dtype=np.int32)
+        num_transitions = np.array([[example["len"] for example in dataset]],
+                                   dtype=np.int32)
 
-    return X, transitions, y, num_transitions
+    # Transpose from (num_stacks, num_examples, num_timesteps)
+    # to (num_examples, num_stacks, num_timesteps)
+    X = np.transpose(X, (1, 0, 2))
+    transitions = np.transpose(transitions, (1, 0, 2))
+    # transpose from (num_stacks, num_examples)
+    # to (num_examples, num_stacks)
+    num_transitions = num_transitions.T
+    print X.shape, transitions.shape, num_transitions.shape
+
+    y = np.array(
+        [example["label"] for example in dataset],
+        dtype=np.int32)
+
+    return X, transitions, num_transitions, y
 
 
 def BuildVocabulary(raw_training_data, raw_eval_sets, embedding_path, logger=None, sentence_pair_data=False):

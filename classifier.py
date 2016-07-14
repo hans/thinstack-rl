@@ -13,10 +13,8 @@ import util
 
 FLAGS = gflags.FLAGS
 
-SentenceModel = namedtuple("SentenceModel", ["ts", "logits", "ys", "gradients"])
-SentencePairModel = namedtuple("SentencePairModel", ["ts_1", "ts_2", "logits", "ys", "gradients"])
-
-TrainingGraph = namedtuple("TrainingGraph", ["model", "num_timesteps", "train_op", "summary_op"])
+TrainingGraph = namedtuple("TrainingGraph", ["stacks", "logits", "ys", "gradients",
+                                             "num_timesteps", "train_op", "summary_op"])
 
 
 def mlp_classifier(x, num_classes, mlp_dims=(256,), scope=None):
@@ -73,7 +71,7 @@ def build_model(num_timesteps, classifier_fn, initial_embeddings=None):
         # TODO store magnitudes in summaries?
         gradients = xent_gradients + rl_gradients
 
-    return SentenceModel(ts, logits, ys, gradients)
+    return (ts,), logits, ys, gradients
 
 
 def build_sentence_pair_model(num_timesteps, classifier_fn, initial_embeddings=None):
@@ -168,7 +166,7 @@ def build_sentence_pair_model(num_timesteps, classifier_fn, initial_embeddings=N
         # TODO store magnitudes in summaries?
         gradients = xent_gradients + rl1_gradients + rl2_gradients
 
-    return SentencePairModel(ts_1, ts_2, logits, ys, gradients)
+    return (ts_1, ts_2), logits, ys, gradients
 
 
 def prepare_data():
@@ -205,45 +203,49 @@ def build_training_graphs(model_fn, buckets):
         summaries_so_far = set(tf.get_collection(tf.GraphKeys.SUMMARIES))
 
         with tf.variable_scope("train/", reuse=i > 0):
-            model = model_fn(num_timesteps)
-            train_op = opt.apply_gradients(model.gradients, global_step)
+            stacks, logits, ys, gradients = model_fn(num_timesteps)
+            train_op = opt.apply_gradients(gradients, global_step)
 
             new_summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
             new_summary_ops = set(new_summary_ops) - summaries_so_far
             summary_op = tf.merge_summary(list(new_summary_ops))
 
-            graphs[num_timesteps] = TrainingGraph(model, num_timesteps,
-                                                  train_op, summary_op)
+            graphs[num_timesteps] = TrainingGraph(stacks, logits, ys, gradients,
+                                                  num_timesteps, train_op, summary_op)
 
     return graphs, global_step
 
 
 def run_batch(sess, graph, batch_data, do_summary=True, profiler=None):
-    ts = graph.model.ts
-    ts.reset(sess)
+    for stack in graph.stacks:
+        stack.reset(sess)
 
-    X_batch, transitions_batch, y_batch, num_transitions_batch = batch_data
-    X_batch, transitions_batch = X_batch.T, transitions_batch.T
+    X, transitions, num_transitions, ys = batch_data
 
-    feed = {ts.transitions[t]: transitions_batch[t]
-            for t in range(ts.num_timesteps)}
-    feed[ts.buff] = X_batch
-    feed[ts.num_transitions] = num_transitions_batch
-    feed[graph.model.ys] = y_batch
+    # Prepare feed dict
+    feed = {}
+    for i, stack in enumerate(graph.stacks):
+        # Swap batch axis to front.
+        X_i = X[:, i].T
+        transitions_i = transitions[:, i, :].T
+
+        feed.update({stack.transitions[t]: transitions_i[t]
+                     for t in range(graph.num_timesteps)})
+        feed[stack.buff] = X_i
+        feed[stack.num_transitions] = num_transitions[:, i]
+    feed[graph.ys] = ys
 
     # Sub in a no-op for summary op if we don't want to compute summaries.
     summary_op_ = graph.summary_op
     if not do_summary:
         summary_op_ = graph.train_op
 
-    fetches = [graph.train_op, summary_op_]
-
     kwargs = {}
     if profiler is not None:
         kwargs["options"] = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
         kwargs["run_metadata"] = profiler
 
-    _, summary = sess.run(fetches, feed, **kwargs)
+    _, summary = sess.run([graph.train_op, summary_op_], feed, **kwargs)
     return summary
 
 
@@ -269,7 +271,8 @@ def main():
 
     savable_variables = set(tf.all_variables())
     for graph in training_graphs.values():
-        savable_variables -= set(graph.model.ts._aux_vars)
+        for stack in graph.stacks:
+            savable_variables -= set(stack._aux_vars)
     saver = tf.train.Saver(savable_variables)
     sv = tf.train.Supervisor(logdir=FLAGS.logdir, global_step=global_step,
                              saver=saver, summary_op=None)
