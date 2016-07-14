@@ -140,7 +140,7 @@ class ThinStack(object):
         stack1, stack2, buff_top = self._lookup(t)
 
         # Compute new recurrent and recursive values.
-        tracking_value_ = self.tracking_fn(self.tracking_value, stack1, stack2, buff_top)
+        tracking_value_ = self.tracking_fn(self.tracking_value, (stack1, stack2, buff_top))
         reduce_value = self.compose_fn((stack1, stack2), tracking_value_)
 
         if self.transition_fn is not None:

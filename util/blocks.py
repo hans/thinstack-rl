@@ -61,6 +61,44 @@ def ReLULayer(inp, inp_dim, outp_dim, vs, name="relu_layer", use_bias=True, init
     return tf.nn.relu(Linear(inp, inp_dim, outp_dim, vs, name, use_bias, initializer))
 
 
+def LSTMLayer(lstm_prev, input_t, scope=None):
+    full_memory_dim = lstm_prev.get_shape().as_list()[1]
+    assert full_memory_dim % 2 == 0, \
+            "LSTM memories are concatenated (h,c); full dim must be even (found %i)" \
+            % full_memory_dim
+    hidden_dim = full_memory_dim / 2
+
+    def slice_gate(gate_data, i):
+        return gate_data[:, i * hidden_dim:(i + 1) * hidden_dim]
+
+    with tf.variable_scope(scope or "lstm"):
+        b = tf.get_variable("b", (hidden_dim * 4,), initializer=LSTMBiasInitializer())
+
+        # Decompose previous LSTM value into hidden and cell value
+        h_prev = lstm_prev[:, :hidden_dim]
+        c_prev = lstm_prev[:,  hidden_dim:]
+
+        gates_dim = hidden_dim * 4
+        gates = Linear(h_prev, gates_dim, bias=False, name="hid_linear")
+        gates += Linear(input_t, gates_dim, bias=False, name="inp_linear")
+        gates += b
+
+        # Compute and slice gate values
+        i_gate, f_gate, o_gate, cell_inp = [slice_gate(gates, i) for i in range(4)]
+
+        # Apply nonlinearities
+        i_gate = tf.nn.sigmoid(i_gate)
+        f_gate = tf.nn.sigmoid(f_gate)
+        o_gate = tf.nn.sigmoid(o_gate)
+        cell_inp = tf.nn.tanh(cell_inp)
+
+        # Compute new cell and hidden value
+        c_t = f_gate * c_prev + i_gate * cell_inp
+        h_t = o_gate * tf.nn.tanh(c_t)
+
+        return tf.concat(1, [h_t, c_t])
+
+
 def TreeLSTMLayer(lstm_prev, external_state, scope=None):
     assert isinstance(lstm_prev, tuple)
     l_prev, r_prev = lstm_prev
