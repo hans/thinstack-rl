@@ -7,6 +7,7 @@ import tensorflow as tf
 from tensorflow.contrib import layers
 
 from data.arithmetic import load_simple_data as load_arithmetic_data
+from data.snli import load_snli_data
 from reinforce import reinforce_episodic_gradients
 from thin_stack import ThinStack
 import util
@@ -103,7 +104,7 @@ def build_sentence_pair_model(num_timesteps, classifier_fn, initial_embeddings=N
             "batch_size": FLAGS.batch_size,
             "vocab_size": FLAGS.vocab_size,
             "num_timesteps": num_timesteps,
-            "model_dim": model_dim,
+            "model_dim": FLAGS.model_dim,
             "embedding_dim": FLAGS.embedding_dim,
             "tracking_dim": FLAGS.tracking_dim,
             "embeddings": initial_embeddings,
@@ -165,21 +166,27 @@ def build_sentence_pair_model(num_timesteps, classifier_fn, initial_embeddings=N
 def prepare_data():
     if FLAGS.data_type == "arithmetic":
         data_manager = load_arithmetic_data
+    elif FLAGS.data_type == "snli":
+        data_manager = load_snli_data
 
     sentence_pair_data = data_manager.SENTENCE_PAIR_DATA
 
     raw_data, vocabulary = data_manager.load_data(FLAGS.training_data_path)
+    if not vocabulary:
+        # Use loaded embeddings without fine-tuning
+        vocabulary = util.BuildVocabulary(raw_data, [],
+                FLAGS.embedding_data_path, sentence_pair_data=sentence_pair_data)
+        # TODO train_embeddings = False
     data = util.data.TokensToIDs(vocabulary, raw_data,
                                  sentence_pair_data=sentence_pair_data)
 
     # TODO customizable
-    buckets = [7, 21]
+    buckets = [21, 51, 121]
     bucketed_data = util.data.PadAndBucket(data, buckets, FLAGS.batch_size,
                                            sentence_pair_data=sentence_pair_data)
 
     # Convert each bucket into TF-friendly arrays
-    bucketed_data = {length: util.data.BucketToArrays(bucket, length,
-                                                      sentence_pair_data=sentence_pair_data)
+    bucketed_data = {length: util.data.BucketToArrays(bucket, length, data_manager)
                      for length, bucket in bucketed_data.iteritems()}
 
     iterator = util.data.MakeBucketedTrainingIterator(bucketed_data, FLAGS.batch_size)
@@ -317,10 +324,13 @@ if __name__ == '__main__':
     gflags.DEFINE_boolean("embedding_batch_norm", False, "")
     gflags.DEFINE_boolean("sentence_repr_batch_norm", False, "")
 
+    gflags.DEFINE_boolean("use_difference_feature", True, "")
+    gflags.DEFINE_boolean("use_product_feature", True, "")
+
     gflags.DEFINE_float("learning_rate", 0.01, "")
     gflags.DEFINE_float("l2_lambda", 0.0, "")
 
-    gflags.DEFINE_enum("data_type", "arithmetic", ["arithmetic"], "")
+    gflags.DEFINE_enum("data_type", "arithmetic", ["arithmetic", "snli"], "")
     gflags.DEFINE_string("training_data_path", None, "")
     gflags.DEFINE_string("embedding_data_path", None, "")
 

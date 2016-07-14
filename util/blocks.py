@@ -42,16 +42,16 @@ def HeKaimingInitializer(seed=None, dtype=tf.float32):
 def TreeLSTMBiasInitializer():
     def init(shape, dtype):
         hidden_dim = shape[0] / 5
-        value = np.zeros(shape)
+        value = np.zeros(shape, dtype=dtype.as_numpy_dtype())
         value[hidden_dim:3*hidden_dim] = 1
         return value
     return init
 
 
 def LSTMBiasInitializer():
-    def init(shape):
+    def init(shape, dtype):
         hidden_dim = shape[0] / 4
-        value = np.zeros(shape)
+        value = np.zeros(shape, dtype=dtype.as_numpy_dtype())
         value[hidden_dim:2*hidden_dim] = 1
         return value
     return init
@@ -79,8 +79,8 @@ def LSTMLayer(lstm_prev, input_t, scope=None):
         c_prev = lstm_prev[:,  hidden_dim:]
 
         gates_dim = hidden_dim * 4
-        gates = Linear(h_prev, gates_dim, bias=False, name="hid_linear")
-        gates += Linear(input_t, gates_dim, bias=False, name="inp_linear")
+        gates = Linear(h_prev, gates_dim, bias=False, scope="hid_linear")
+        gates += Linear(input_t, gates_dim, bias=False, scope="inp_linear")
         gates += b
 
         # Compute and slice gate values

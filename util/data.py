@@ -80,11 +80,12 @@ def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
                          % (length, lengths[-1]))
 
     for example in dataset:
+        # For a sentence-pair dataset, the longer of the two sentences
+        # determines in which bucket the pair goes :(
+        max_transitions = max(len(example[transitions_key]) for transitions_key, _, _ in keys)
         for transitions_key, tokens_key, len_key in keys:
             # Pad everything at right.
-            # TODO: These token sequences are unnecessarily long.. will always
-            # be padding. Only need (n+1)/2 for n = seq_length
-            example[len_key] = len(example[transitions_key])
+            example[len_key] = max_transitions
             nearest_bucket = get_nearest_bucket(example[len_key])
             example[transitions_key] += [0] * (nearest_bucket - len(example[transitions_key]))
 
@@ -94,7 +95,8 @@ def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
             buckets[nearest_bucket].append(example)
 
     for bucket in buckets:
-        assert len(buckets[bucket]) >= batch_size, "Bucket smaller than batch size: " + str(bucket)
+        assert len(buckets[bucket]) >= batch_size, \
+                "Bucket smaller than batch size: %s (only %i examples)" % (bucket, len(buckets[bucket]))
 
     return buckets
 
@@ -180,8 +182,8 @@ def MakeEvalIterator(sources, batch_size):
     return data_iter
 
 
-def BucketToArrays(dataset, seq_length, sentence_pair_data=False, for_rnn=False):
-    if sentence_pair_data:
+def BucketToArrays(dataset, seq_length, data_manager, for_rnn=False):
+    if data_manager.SENTENCE_PAIR_DATA:
         X = np.array([[example["premise_tokens"] for example in dataset],
                       [example["hypothesis_tokens"] for example in dataset]],
                      dtype=np.int32)
@@ -214,15 +216,14 @@ def BucketToArrays(dataset, seq_length, sentence_pair_data=False, for_rnn=False)
     num_transitions = num_transitions.T
 
     y = np.array(
-        [example["label"] for example in dataset],
+        [data_manager.LABEL_MAP[example["label"]] for example in dataset],
         dtype=np.int32)
 
     return X, transitions, num_transitions, y
 
 
-def BuildVocabulary(raw_training_data, raw_eval_sets, embedding_path, logger=None, sentence_pair_data=False):
+def BuildVocabulary(raw_training_data, raw_eval_sets, embedding_path, sentence_pair_data=False):
     # Find the set of words that occur in the data.
-    logger.Log("Constructing vocabulary...")
     types_in_data = set()
     for dataset in [raw_training_data] + [eval_dataset[1] for eval_dataset in raw_eval_sets]:
         if sentence_pair_data:
@@ -233,11 +234,8 @@ def BuildVocabulary(raw_training_data, raw_eval_sets, embedding_path, logger=Non
         else:
             types_in_data.update(itertools.chain.from_iterable([example["tokens"]
                                                                 for example in dataset]))
-    logger.Log("Found " + str(len(types_in_data)) + " word types.")
 
     if embedding_path == None:
-        logger.Log(
-            "Warning: Open-vocabulary models require pretrained vectors. Running with empty vocabulary.")
         vocabulary = CORE_VOCABULARY
     else:
         # Build a vocabulary of words in the data for which we have an
