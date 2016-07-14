@@ -212,7 +212,6 @@ def BucketToArrays(dataset, seq_length, sentence_pair_data=False, for_rnn=False)
     # transpose from (num_stacks, num_examples)
     # to (num_examples, num_stacks)
     num_transitions = num_transitions.T
-    print X.shape, transitions.shape, num_transitions.shape
 
     y = np.array(
         [example["label"] for example in dataset],

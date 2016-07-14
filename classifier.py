@@ -191,7 +191,7 @@ def prepare_data():
 
     iterator = util.data.MakeBucketedTrainingIterator(bucketed_data, FLAGS.batch_size)
 
-    return iterator, buckets, vocabulary
+    return iterator, buckets, vocabulary, sentence_pair_data
 
 
 def build_training_graphs(model_fn, buckets):
@@ -254,7 +254,7 @@ def run_batch(sess, graph, batch_data, do_summary=True, profiler=None):
 
 
 def main():
-    training_iterator, training_buckets, vocabulary = prepare_data()
+    training_iterator, training_buckets, vocabulary, is_pair_data = prepare_data()
 
     if FLAGS.embedding_data_path:
         embeddings = util.LoadEmbeddingsFromASCII(
@@ -265,16 +265,16 @@ def main():
         embeddings = None
 
     classifier_fn = partial(mlp_classifier, num_classes=FLAGS.num_classes)
-    model_fn = partial(build_model, classifier_fn=classifier_fn,
+    model_fn = build_sentence_pair_model if is_pair_data else build_model
+    model_fn = partial(model_fn, classifier_fn=classifier_fn,
                        initial_embeddings=embeddings)
-    training_graphs, global_step = build_training_graphs(
-            model_fn, training_buckets)
+    graphs, global_step = build_training_graphs(model_fn, training_buckets)
 
     summary_op = tf.merge_all_summaries()
     no_op = tf.constant(0.0)
 
     savable_variables = set(tf.all_variables())
-    for graph in training_graphs.values():
+    for graph in graphs.values():
         for stack in graph.stacks:
             savable_variables -= set(stack._aux_vars)
     saver = tf.train.Saver(savable_variables)
@@ -290,7 +290,7 @@ def main():
 
             do_summary = step % FLAGS.summary_step_interval == 0
             profiler = run_metadata if FLAGS.profile and do_summary else None
-            ret = run_batch(sess, training_graphs[bucket], batch_data,
+            ret = run_batch(sess, graphs[bucket], batch_data,
                             do_summary, profiler)
 
             if do_summary:
