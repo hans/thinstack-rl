@@ -39,6 +39,7 @@ def load_data(path):
             (example["premise_tokens"], example["premise_transitions"]) = convert_binary_bracketing(loaded_example["sentence1_binary_parse"])
             (example["hypothesis_tokens"], example["hypothesis_transitions"]) = convert_binary_bracketing(loaded_example["sentence2_binary_parse"])
             examples.append(example)
+    print "Loaded %i examples." % len(examples)
     return examples, None
 
 

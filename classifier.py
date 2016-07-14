@@ -40,7 +40,8 @@ def build_rewards(classifier_logits, ys):
                                 ys))
 
 
-def build_model(num_timesteps, classifier_fn, initial_embeddings=None):
+def build_model(num_timesteps, vocab_size, classifier_fn,
+                initial_embeddings=None):
     with tf.variable_scope("Model", initializer=util.HeKaimingInitializer()):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
@@ -51,7 +52,7 @@ def build_model(num_timesteps, classifier_fn, initial_embeddings=None):
             return tf.random_uniform((FLAGS.batch_size, 2), minval=-10, maxval=10)
 
         ts = ThinStack(compose_fn, tracking_fn, transition_fn, FLAGS.batch_size,
-                       FLAGS.vocab_size, num_timesteps, FLAGS.model_dim,
+                       vocab_size, num_timesteps, FLAGS.model_dim,
                        FLAGS.embedding_dim, FLAGS.tracking_dim,
                        embeddings=initial_embeddings)
 
@@ -75,7 +76,8 @@ def build_model(num_timesteps, classifier_fn, initial_embeddings=None):
     return (ts,), logits, ys, gradients
 
 
-def build_sentence_pair_model(num_timesteps, classifier_fn, initial_embeddings=None):
+def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn,
+                              initial_embeddings=None):
     with tf.variable_scope("PairModel", initializer=util.HeKaimingInitializer()):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
@@ -102,7 +104,7 @@ def build_sentence_pair_model(num_timesteps, classifier_fn, initial_embeddings=N
             "transition_fn": None,
             "embedding_project_fn": embedding_project_fn,
             "batch_size": FLAGS.batch_size,
-            "vocab_size": FLAGS.vocab_size,
+            "vocab_size": vocab_size,
             "num_timesteps": num_timesteps,
             "model_dim": FLAGS.model_dim,
             "embedding_dim": FLAGS.embedding_dim,
@@ -180,8 +182,9 @@ def prepare_data():
     data = util.data.TokensToIDs(vocabulary, raw_data,
                                  sentence_pair_data=sentence_pair_data)
 
+    tf.logging.info("Preprocessing training data.")
     # TODO customizable
-    buckets = [21, 51, 121]
+    buckets = [21, 51, 121]#, 171]
     bucketed_data = util.data.PadAndBucket(data, buckets, FLAGS.batch_size,
                                            sentence_pair_data=sentence_pair_data)
 
@@ -197,7 +200,7 @@ def prepare_data():
 def build_training_graphs(model_fn, buckets):
     graphs = {}
     global_step = tf.Variable(0, trainable=False, name="global_step")
-    opt = tf.train.MomentumOptimizer(0.001, 0.9)
+    opt = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
 
     for i, num_timesteps in enumerate(buckets):
         summaries_so_far = set(tf.get_collection(tf.GraphKeys.SUMMARIES))
@@ -254,6 +257,7 @@ def run_batch(sess, graph, batch_data, do_summary=True, profiler=None):
 
 
 def main():
+    tf.logging.info("Loading and preparing data.")
     training_iterator, training_buckets, vocabulary, is_pair_data = prepare_data()
 
     if FLAGS.embedding_data_path:
@@ -264,15 +268,18 @@ def main():
     else:
         embeddings = None
 
+    tf.logging.info("Building training graphs.")
     classifier_fn = partial(mlp_classifier, num_classes=FLAGS.num_classes)
     model_fn = build_sentence_pair_model if is_pair_data else build_model
-    model_fn = partial(model_fn, classifier_fn=classifier_fn,
+    model_fn = partial(model_fn, vocab_size=len(vocabulary),
+                       classifier_fn=classifier_fn,
                        initial_embeddings=embeddings)
     graphs, global_step = build_training_graphs(model_fn, training_buckets)
 
     summary_op = tf.merge_all_summaries()
     no_op = tf.constant(0.0)
 
+    tf.logging.info("Preparing to run training.")
     savable_variables = set(tf.all_variables())
     for graph in graphs.values():
         for stack in graph.stacks:
@@ -283,7 +290,7 @@ def main():
 
     run_metadata = tf.RunMetadata()
     with sv.managed_session(FLAGS.master) as sess:
-        print >> sys.stderr, 'Training.'
+        tf.logging.info("Training.")
         for step, (bucket, batch_data) in zip(xrange(FLAGS.training_steps), training_iterator):
             if sv.should_stop():
                 break
@@ -312,7 +319,6 @@ if __name__ == '__main__':
     gflags.DEFINE_boolean("profile", False, "")
 
     gflags.DEFINE_integer("batch_size", 64, "")
-    gflags.DEFINE_integer("vocab_size", 100, "")
     gflags.DEFINE_integer("num_classes", 3, "")
 
     gflags.DEFINE_integer("model_dim", 128, "")
@@ -335,4 +341,6 @@ if __name__ == '__main__':
     gflags.DEFINE_string("embedding_data_path", None, "")
 
     FLAGS(sys.argv)
+    tf.logging.set_verbosity(tf.logging.INFO)
+
     main()
