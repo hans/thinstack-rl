@@ -304,12 +304,11 @@ if __name__ == '__main__':
     gflags.DEFINE_string("master", "", "")
     gflags.DEFINE_string("logdir", "/tmp/rl-stack", "")
     gflags.DEFINE_integer("summary_step_interval", 100, "")
-    gflags.DEFINE_integer("training_steps", 10, "")
+    gflags.DEFINE_integer("training_steps", 10000, "")
     gflags.DEFINE_boolean("profile", False, "")
 
     gflags.DEFINE_integer("batch_size", 64, "")
     gflags.DEFINE_integer("vocab_size", 100, "")
-    gflags.DEFINE_integer("seq_length", 29, "")
     gflags.DEFINE_integer("num_classes", 3, "")
 
     gflags.DEFINE_integer("model_dim", 128, "")
