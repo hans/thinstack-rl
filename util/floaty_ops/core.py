@@ -42,9 +42,13 @@ def _unsafe_floaty_gather_grad(op, grad):
     assert params.get_shape().is_fully_defined()
 
     with tf.op_scope([grad_container, idxs, grad], None, "UnsafeFloatyGatherGrad"):
+        # HACK: Grab variable underlying grad_container tensor
+        assert grad_container.op.type == "Identity"
+        grad_container = grad_container.op.inputs[0]
+
         update_container = floaty_scatter_update(grad_container, idxs, grad)
         with tf.control_dependencies([update_container]):
-            return floaty_gather(update_container, idxs)
+            return grad_container, None, None
 
 
 
@@ -60,5 +64,6 @@ def _floaty_scatter_update_shape(op):
 @tf.RegisterGradient("FloatyScatterUpdate")
 def _floaty_scatter_update_grad(op, grad):
     idxs = op.inputs[1]
+    # TODO `grad` object here is on the CPU :(
     grad_updates = floaty_gather(grad, idxs)
     return None, None, grad_updates
