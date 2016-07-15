@@ -10,3 +10,6 @@ def floaty_scatter_update(ref, indices, updates, **kwargs):
 def floaty_gather(arg, idxs, **kwargs):
     return tf.gather(arg, tf.to_int32(idxs), **kwargs)
 
+
+def unsafe_floaty_gather(arg, idxs, grad_container, **kwargs):
+    return tf.gather(arg, tf.to_int32(idxs), **kwargs)

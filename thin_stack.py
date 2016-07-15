@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 
 import util
-from util.floaty_ops import floaty_gather, floaty_scatter_update
+from util.floaty_ops import floaty_gather, floaty_scatter_update, unsafe_floaty_gather
 
 
 class ThinStack(object):
@@ -83,7 +83,8 @@ class ThinStack(object):
 
         # Both the queue and the stack are flattened stack_size * batch_size
         # tensors. `stack_size` many blocks of `batch_size` values
-        self.stack = tf.Variable(tf.zeros((self.stack_size * self.batch_size, self.model_dim), dtype=tf.float32),
+        stack_shape = (self.stack_size * self.batch_size, self.model_dim)
+        self.stack = tf.Variable(tf.zeros(stack_shape, dtype=tf.float32),
                                  trainable=False, name="stack")
         self.queue = tf.Variable(tf.zeros((self.stack_size * self.batch_size,), dtype=tf.float32),
                                  trainable=False, name="queue")
@@ -93,6 +94,9 @@ class ThinStack(object):
         self.cursors = tf.Variable(tf.ones((self.batch_size,), dtype=tf.float32) * - 1,
                                    trainable=False, name="cursors")
 
+        self.bwd_stack = tf.Variable(tf.zeros(stack_shape), trainable=False,
+                                     name="bwd_stack")
+
         # TODO make parameterizable
         self.tracking_value = tf.Variable(tf.zeros((self.batch_size, self.tracking_dim), dtype=tf.float32),
                                           trainable=False, name="tracking_value")
@@ -100,7 +104,7 @@ class ThinStack(object):
         # Create an Op which will (re-)initialize the auxiliary variables
         # declared above.
         self._aux_vars = [self.stack, self.queue, self.buff_cursors, self.cursors,
-                          self.tracking_value]
+                          self.tracking_value, self.bwd_stack]
         self.variable_initializer = tf.initialize_variables(self._aux_vars)
 
     def _update_stack(self, t, shift_value, reduce_value, transitions_t):
@@ -124,11 +128,11 @@ class ThinStack(object):
 
     def _lookup(self, t):
         stack1_ptrs = float(t - 1) * self.batch_size + self.batch_range
-        stack1 = floaty_gather(self.stack, tf.maximum(0.0, stack1_ptrs), name="stack1_fetch")
+        stack1 = unsafe_floaty_gather(self.stack, tf.maximum(0.0, stack1_ptrs), self.bwd_stack, name="stack1_fetch")
 
         queue_ptrs = (self.cursors - 1) * self.batch_size + self.batch_range
         stack2_ptrs = floaty_gather(self.queue, tf.maximum(0.0, queue_ptrs)) * self.batch_size + self.batch_range
-        stack2 = floaty_gather(self.stack, stack2_ptrs, name="stack2_fetch")
+        stack2 = unsafe_floaty_gather(self.stack, stack2_ptrs, self.bwd_stack, name="stack2_fetch")
 
         buff_idxs = (self.buff_cursors * self.batch_size) + self.batch_range
         # TODO: enforce transition validity instead of this hack
