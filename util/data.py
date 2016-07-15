@@ -92,7 +92,7 @@ def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
             max_tokens = (nearest_bucket + 1) / 2
             example[tokens_key] += [0] * (max_tokens - len(example[tokens_key]))
 
-            buckets[nearest_bucket].append(example)
+        buckets[nearest_bucket].append(example)
 
     for bucket in buckets:
         assert len(buckets[bucket]) >= batch_size, \
