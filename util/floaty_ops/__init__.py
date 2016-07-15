@@ -9,6 +9,7 @@ try:
     _library = tf.load_op_library(floaty_path)
     from util.floaty_ops.core import *
 
-except:
+except Exception, e:
     print >> sys.stderr, "Warning: compiled floaty library could not be loaded. Falling back to slow ops"
+    print >> sys.stderr, "\t%s" % e
     from util.floaty_ops.fallback import *
