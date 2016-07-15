@@ -41,7 +41,7 @@ def build_rewards(classifier_logits, ys):
 
 
 def build_model(num_timesteps, vocab_size, classifier_fn,
-                initial_embeddings=None):
+                train_embeddings=True, initial_embeddings=None):
     with tf.variable_scope("Model", initializer=util.HeKaimingInitializer()):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
@@ -66,6 +66,8 @@ def build_model(num_timesteps, vocab_size, classifier_fn,
         tf.scalar_summary("avg_reward", tf.reduce_mean(rewards))
 
         params = tf.trainable_variables()
+        if not train_embeddings:
+            params.remove(ts.embeddings)
         xent_gradients = zip(tf.gradients(xent_loss, params), params)
         rl_gradients = reinforce_episodic_gradients(
                 ts.p_transitions, ts.sampled_transitions, rewards,
@@ -77,7 +79,7 @@ def build_model(num_timesteps, vocab_size, classifier_fn,
 
 
 def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn,
-                              initial_embeddings=None):
+                              train_embeddings=True, initial_embeddings=None):
     with tf.variable_scope("PairModel", initializer=util.HeKaimingInitializer()):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
@@ -150,6 +152,12 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn,
         tf.scalar_summary("avg_reward", tf.reduce_mean(rewards))
 
         params = tf.trainable_variables()
+        if not train_embeddings:
+            params.remove(ts_1.embeddings)
+            try:
+                params.remove(ts_2.embeddings)
+            except: pass
+
         xent_gradients = zip(tf.gradients(xent_loss, params), params)
         # TODO enable for transition_fn != None
         # rl1_gradients = reinforce_episodic_gradients(
@@ -174,27 +182,30 @@ def prepare_data():
     sentence_pair_data = data_manager.SENTENCE_PAIR_DATA
 
     raw_data, vocabulary = data_manager.load_data(FLAGS.training_data_path)
+    train_embeddings = True
     if not vocabulary:
-        # Use loaded embeddings without fine-tuning
         vocabulary = util.BuildVocabulary(raw_data, [],
                 FLAGS.embedding_data_path, sentence_pair_data=sentence_pair_data)
-        # TODO train_embeddings = False
+        # Don't train embeddings on open vocabulary
+        tf.logging.warn("Training on open vocabulary, so not training embeddings.")
+        train_embeddings = False
+
     data = util.data.TokensToIDs(vocabulary, raw_data,
                                  sentence_pair_data=sentence_pair_data)
 
     tf.logging.info("Preprocessing training data.")
     # TODO customizable
-    buckets = [21, 51, 121]#, 171]
+    buckets = [51, 121]#, 171]
     bucketed_data = util.data.PadAndBucket(data, buckets, FLAGS.batch_size,
                                            sentence_pair_data=sentence_pair_data)
 
     # Convert each bucket into TF-friendly arrays
-    bucketed_data = {length: util.data.BucketToArrays(bucket, length, data_manager)
+    bucketed_data = {length: util.data.BucketToArrays(bucket, data_manager)
                      for length, bucket in bucketed_data.iteritems()}
 
     iterator = util.data.MakeBucketedTrainingIterator(bucketed_data, FLAGS.batch_size)
 
-    return iterator, buckets, vocabulary, sentence_pair_data
+    return iterator, buckets, vocabulary, sentence_pair_data, train_embeddings
 
 
 def build_training_graphs(model_fn, buckets):
@@ -258,7 +269,8 @@ def run_batch(sess, graph, batch_data, do_summary=True, profiler=None):
 
 def main():
     tf.logging.info("Loading and preparing data.")
-    training_iterator, training_buckets, vocabulary, is_pair_data = prepare_data()
+    training_iterator, training_buckets, vocabulary, \
+            is_pair_data, train_embeddings = prepare_data()
 
     if FLAGS.embedding_data_path:
         embeddings = util.LoadEmbeddingsFromASCII(
@@ -273,6 +285,7 @@ def main():
     model_fn = build_sentence_pair_model if is_pair_data else build_model
     model_fn = partial(model_fn, vocab_size=len(vocabulary),
                        classifier_fn=classifier_fn,
+                       train_embeddings=train_embeddings,
                        initial_embeddings=embeddings)
     graphs, global_step = build_training_graphs(model_fn, training_buckets)
 
@@ -292,6 +305,8 @@ def main():
     with sv.managed_session(FLAGS.master) as sess:
         tf.logging.info("Training.")
         for step, (bucket, batch_data) in zip(xrange(FLAGS.training_steps), training_iterator):
+            if step % 100 == 0:
+                tf.logging.info("%i", step)
             if sv.should_stop():
                 break
 

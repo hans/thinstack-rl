@@ -182,7 +182,7 @@ def MakeEvalIterator(sources, batch_size):
     return data_iter
 
 
-def BucketToArrays(dataset, seq_length, data_manager, for_rnn=False):
+def BucketToArrays(dataset, data_manager, for_rnn=False):
     if data_manager.SENTENCE_PAIR_DATA:
         X = np.array([[example["premise_tokens"] for example in dataset],
                       [example["hypothesis_tokens"] for example in dataset]],
