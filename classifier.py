@@ -264,7 +264,7 @@ def build_graphs(model_fn, buckets):
     graphs = {}
     global_step = tf.Variable(0, trainable=False, name="global_step")
     is_training = tf.placeholder(tf.bool, (), name="is_training")
-    opt = tf.train.RMSPropOptimizer(FLAGS.learning_rate)
+    opt = tf.train.AdamOptimizer(FLAGS.learning_rate)
 
     for i, num_timesteps in enumerate(buckets):
         summaries_so_far = set(tf.get_collection(tf.GraphKeys.SUMMARIES))
