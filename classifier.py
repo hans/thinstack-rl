@@ -168,7 +168,12 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_train
                 params.remove(ts_2.embeddings)
             except: pass
 
-        xent_gradients = zip(tf.gradients(xent_loss, params), params)
+        l2_loss = tf.add_n([tf.reduce_sum(tf.square(param))
+                            for param in params])
+        tf.scalar_summary("l2_loss", l2_loss)
+        total_loss = xent_loss + FLAGS.l2_lambda * l2_loss
+
+        xent_gradients = zip(tf.gradients(total_loss, params), params)
         # TODO enable for transition_fn != None
         # rl1_gradients = reinforce_episodic_gradients(
         #         ts_1.p_transitions, ts_1.sampled_transitions, rewards,
