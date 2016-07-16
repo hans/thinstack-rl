@@ -21,7 +21,7 @@ Graph = namedtuple("Graph", ["stacks", "logits", "ys", "gradients",
                              "is_training"])
 
 
-def mlp_classifier(x, num_classes, mlp_dims=(256,), scope=None):
+def mlp_classifier(x, num_classes, mlp_dims=(1024,1024), scope=None):
     with tf.variable_scope(scope or "classifier"):
         dims = (x.get_shape()[1],) + mlp_dims
         for i, (in_dim, out_dim) in enumerate(zip(dims, dims[1:])):
@@ -84,7 +84,8 @@ def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
 
 def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_training,
                               train_embeddings=True, initial_embeddings=None):
-    with tf.variable_scope("PairModel", initializer=util.HeKaimingInitializer()):
+    initializer = tf.random_uniform_initializer(-0.005, 0.005)
+    with tf.variable_scope("PairModel", initializer=initializer):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
         assert FLAGS.model_dim % 2 == 0, "model_dim must be even; we're using LSTM memory cells which are divided in half"

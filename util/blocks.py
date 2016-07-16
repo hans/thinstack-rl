@@ -71,7 +71,7 @@ def LSTMLayer(lstm_prev, input_t, scope=None):
     def slice_gate(gate_data, i):
         return gate_data[:, i * hidden_dim:(i + 1) * hidden_dim]
 
-    with tf.variable_scope(scope or "lstm"):
+    with tf.variable_scope(scope or "lstm", initializer=HeKaimingInitializer()):
         b = tf.get_variable("b", (hidden_dim * 4,), initializer=LSTMBiasInitializer())
 
         # Decompose previous LSTM value into hidden and cell value
@@ -110,7 +110,7 @@ def TreeLSTMLayer(lstm_prev, external_state, scope=None):
             % full_memory_dim
     hidden_dim = full_memory_dim / 2
 
-    with tf.variable_scope(scope or "tree_lstm"):
+    with tf.variable_scope(scope or "tree_lstm", initializer=HeKaimingInitializer()):
         W_l = tf.get_variable("W_l", (hidden_dim, hidden_dim * 5))
         W_r = tf.get_variable("W_r", (hidden_dim, hidden_dim * 5))
         if external_state is not None:
