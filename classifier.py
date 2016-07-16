@@ -70,6 +70,9 @@ def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
         tf.scalar_summary("avg_reward", tf.reduce_mean(rewards))
 
         params = tf.trainable_variables()
+        for param in params:
+            tf.histogram_summary(param.name, param)
+
         if not train_embeddings:
             params.remove(ts.embeddings)
         xent_gradients = zip(tf.gradients(xent_loss, params), params)
@@ -168,6 +171,9 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_train
             try:
                 params.remove(ts_2.embeddings)
             except: pass
+
+        for param in params:
+            tf.histogram_summary(param.name, param)
 
         l2_loss = tf.add_n([tf.reduce_sum(tf.square(param))
                             for param in params])
