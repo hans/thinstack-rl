@@ -156,9 +156,10 @@ class ThinStack(object):
         if self.transition_fn is not None:
             p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buff_top])
             # Sample at train-time; argmax at test-time
-            sample_train_t = tf.to_float(tf.multinomial(p_transitions_t, 1))
-            sample_test_t = tf.to_float(tf.argmax(p_transitions_t, 1))
-            sample_t = tf.cond(self.is_training, sample_train_t, sample_test_t)
+            sample_t = tf.cond(self.is_training,
+                    lambda: tf.multinomial(p_transitions_t, 1),
+                    lambda: tf.argmax(p_transitions_t, 1))
+            sample_t = tf.to_float(sample_t)
 
             must_shift = tf.to_float(self.cursors < 1)
             must_reduce = tf.to_float(self.buff_cursors >= tf.to_float(self.num_transitions + 1) / 2.0)

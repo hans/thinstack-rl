@@ -98,9 +98,9 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_train
                 embeddings = layers.batch_norm(embeddings, center=True, scale=True,
                                             is_training=True)
             if FLAGS.embedding_keep_rate < 1.0:
-                embeddings_train = tf.nn.dropout(embeddings, FLAGS.embedding_keep_rate)
-                embeddings_test = embeddings / FLAGS.embedding_keep_rate
-                embeddings = tf.cond(is_training, embeddings_train, embeddings_test)
+                embeddings = tf.cond(is_training,
+                        lambda: tf.nn.dropout(embeddings, FLAGS.embedding_keep_rate),
+                        lambda: embeddings / FLAGS.embedding_keep_rate)
             return embeddings
 
         # Share scope across the two models. (==> shared embedding projection /
@@ -146,10 +146,10 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_train
             mlp_input = layers.batch_norm(mlp_input, center=True, scale=True,
                                           is_training=True, scope="sentence_repr_bn")
         if FLAGS.sentence_repr_keep_rate < 1.0:
-            mlp_input_train = tf.nn.dropout(mlp_input, FLAGS.sentence_repr_keep_rate,
-                                            name="sentence_repr_dropout")
-            mlp_input_test = mlp_input / FLAGS.sentence_repr_keep_rate
-            mlp_input = tf.cond(is_training, mlp_input_train, mlp_input_test)
+            mlp_input = tf.cond(is_training,
+                    lambda: tf.nn.dropout(mlp_input, FLAGS.sentence_repr_keep_rate,
+                                          name="sentence_repr_dropout"),
+                    lambda: mlp_input / FLAGS.sentence_repr_keep_rate)
 
         logits = classifier_fn(mlp_input)
         assert logits.get_shape()[1] == FLAGS.num_classes
