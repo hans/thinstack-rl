@@ -89,7 +89,7 @@ def PadDataset(dataset, desired_length, sentence_pair_data=False):
     return dataset
 
 
-def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
+def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False, discard_long_examples=True):
     """Pad sequences and categorize them into different length bins."""
     keys = _SENTENCE_PAIR_KEYS if sentence_pair_data else _SENTENCE_KEYS
 
@@ -103,8 +103,11 @@ def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
         for bucket_length in lengths:
             if length <= bucket_length:
                 return bucket_length
-        raise ValueError("length %i is larger than largest bucket length %i"
-                         % (length, lengths[-1]))
+        if not discard_long_examples:
+            raise ValueError("length %i is larger than largest bucket length %i"
+                             % (length, lengths[-1]))
+        else:
+            return None
 
     for example in dataset:
         # For a sentence-pair dataset, the longer of the two sentences
@@ -112,9 +115,10 @@ def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
         max_transitions = max(len(example[transitions_key]) for transitions_key, _, _ in keys)
 
         nearest_bucket = get_nearest_bucket(max_transitions)
-        example = PadExample(example, max_transitions, nearest_bucket, keys)
+        if nearest_bucket:
+            example = PadExample(example, max_transitions, nearest_bucket, keys)
 
-        buckets[nearest_bucket].append(example)
+            buckets[nearest_bucket].append(example)
 
     for bucket in buckets:
         assert len(buckets[bucket]) >= batch_size, \

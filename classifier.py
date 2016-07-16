@@ -70,8 +70,6 @@ def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
         tf.scalar_summary("avg_reward", tf.reduce_mean(rewards))
 
         params = tf.trainable_variables()
-        for param in params:
-            tf.histogram_summary(param.name, param)
 
         if not train_embeddings:
             params.remove(ts.embeddings)
@@ -80,9 +78,7 @@ def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
                 ts.p_transitions, ts.sampled_transitions, rewards,
                 params=params)
 
-        # TODO store magnitudes in summaries?
         gradients = xent_gradients + rl_gradients
-
     return (ts,), logits, ys, gradients
 
 
@@ -172,9 +168,6 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_train
                 params.remove(ts_2.embeddings)
             except: pass
 
-        for param in params:
-            tf.histogram_summary(param.name, param)
-
         l2_loss = tf.add_n([tf.reduce_sum(tf.square(param))
                             for param in params])
         tf.scalar_summary("l2_loss", l2_loss)
@@ -240,7 +233,8 @@ def prepare_data():
     # DEV TESTING [17, 21, 25, 33, 49, 71, 171]
     buckets = [int(arg) for arg in FLAGS.buckets.split(",")]
     bucketed_data = util.data.PadAndBucket(data, buckets, FLAGS.batch_size,
-                                           sentence_pair_data=sentence_pair_data)
+                                           sentence_pair_data=sentence_pair_data,
+                                           discard_long_examples=FLAGS.discard_long_examples)
     tf.logging.info("Bucket distribution:\n\t" +
                     "\n\t".join("Length %3i: %7i examples"
                                 % (bucket, len(bucketed_data[bucket]))
@@ -279,6 +273,13 @@ def build_graphs(model_fn, buckets):
         with tf.variable_scope("train/", reuse=i > 0):
             stacks, logits, ys, gradients = model_fn(num_timesteps,
                                                      is_training=is_training)
+
+            for gradient, param in gradients:
+                if gradient is not None:
+                    tf.histogram_summary(gradient.name, gradient)
+                    tf.histogram_summary(param.name, param)
+
+
             train_op = opt.apply_gradients(gradients, global_step)
 
             new_summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
@@ -399,6 +400,7 @@ if __name__ == '__main__':
 
     gflags.DEFINE_integer("batch_size", 64, "")
     gflags.DEFINE_string("buckets", "17,171", "")
+    gflags.DEFINE_boolean("discard_long_examples", True, "")
 
     gflags.DEFINE_integer("model_dim", 128, "")
     gflags.DEFINE_integer("embedding_dim", 128, "")
