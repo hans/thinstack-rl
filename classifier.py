@@ -44,7 +44,7 @@ def build_rewards(classifier_logits, ys):
 
 
 def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
-                train_embeddings=True, initial_embeddings=None):
+                train_embeddings=True, initial_embeddings=None, num_classes=3):
     with tf.variable_scope("Model", initializer=util.HeKaimingInitializer()):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
@@ -60,6 +60,7 @@ def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
                        embeddings=initial_embeddings)
 
         logits = classifier_fn(ts.final_representations)
+        assert logits.get_shape()[1] == num_classes
 
         xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
         xent_loss = tf.reduce_mean(xent_loss)
@@ -337,7 +338,7 @@ def main():
         embeddings = None
 
     tf.logging.info("Building training graphs.")
-    classifier_fn = partial(mlp_classifier)
+    classifier_fn = partial(mlp_classifier, num_classes=data.num_classes)
     model_fn = build_sentence_pair_model if data.is_pair_data else build_model
     model_fn = partial(model_fn, vocab_size=len(data.vocabulary),
                        classifier_fn=classifier_fn,
