@@ -230,7 +230,8 @@ def prepare_data():
     #
     # ~100k in each bucket, fewer buckets:
     # 17, 21, 25, 33, 49, 71, 171
-    buckets = [17,171]# DEV TESTING [17, 21, 25, 33, 49, 71, 171]
+    # DEV TESTING [17, 21, 25, 33, 49, 71, 171]
+    buckets = [int(arg) for arg in FLAGS.buckets.split(",")]
     bucketed_data = util.data.PadAndBucket(data, buckets, FLAGS.batch_size,
                                            sentence_pair_data=sentence_pair_data)
     tf.logging.info("Bucket distribution:\n\t" +
@@ -389,6 +390,7 @@ if __name__ == '__main__':
     gflags.DEFINE_boolean("profile", False, "")
 
     gflags.DEFINE_integer("batch_size", 64, "")
+    gflags.DEFINE_string("buckets", "17,171", "")
     gflags.DEFINE_integer("num_classes", 3, "")
 
     gflags.DEFINE_integer("model_dim", 128, "")
