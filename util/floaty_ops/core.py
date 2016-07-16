@@ -5,7 +5,7 @@ from util.floaty_ops import _library
 
 floaty_gather = _library.floaty_gather
 floaty_scatter_update = _library.floaty_scatter_update
-unsafe_floaty_gather = _library.unsafe_floaty_gather
+unsafe_floaty_gather = lambda x, y, *args, **kwargs: floaty_gather(x, y, **kwargs)
 
 
 @tf.RegisterShape("FloatyGather")
