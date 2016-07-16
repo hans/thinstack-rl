@@ -22,6 +22,13 @@ CORE_VOCABULARY = {PADDING_TOKEN: 0,
 NUM_TRANSITION_TYPES = 2
 
 
+# Keys into transition sequences / tokens / sequence lengths for different
+# dataset types. Internal use only.
+_SENTENCE_PAIR_KEYS = [("premise_transitions", "premise_tokens", "premise_len"),
+                       ("hypothesis_transitions", "hypothesis_tokens", "hypothesis_len")]
+_SENTENCE_KEYS = [("transitions", "tokens", "len")]
+
+
 def TrimDataset(dataset, seq_length, eval_mode=False, sentence_pair_data=False):
     """Avoid using excessively long training examples."""
     if eval_mode:
@@ -57,14 +64,34 @@ def TokensToIDs(vocabulary, dataset, sentence_pair_data=False):
     return dataset
 
 
+def PadExample(example, actual_transitions, desired_transitions, keys):
+    assert actual_transitions <= desired_transitions
+    num_tokens = (desired_transitions + 1) / 2
+
+    for transitions_key, tokens_key, len_key in keys:
+        example[len_key] = actual_transitions
+
+        # Pad everything at right.
+        example[transitions_key] += [0] * (desired_transitions - len(example[transitions_key]))
+        example[tokens_key] += [0] * (num_tokens - len(example[tokens_key]))
+
+    return example
+
+
+def PadDataset(dataset, desired_length, sentence_pair_data=False):
+    keys = _SENTENCE_PAIR_KEYS if sentence_pair_data else _SENTENCE_KEYS
+
+    for example in dataset:
+        max_transitions = max(len(example[transitions_key]) for transitions_key, _, _ in keys)
+        assert max_transitions <= desired_length
+        PadExample(example, max_transitions, desired_length, keys)
+
+    return dataset
+
+
 def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
     """Pad sequences and categorize them into different length bins."""
-
-    if sentence_pair_data:
-        keys = [("premise_transitions", "premise_tokens", "premise_len"),
-                ("hypothesis_transitions", "hypothesis_tokens", "hypothesis_len")]
-    else:
-        keys = [("transitions", "tokens", "len")]
+    keys = _SENTENCE_PAIR_KEYS if sentence_pair_data else _SENTENCE_KEYS
 
     for length in lengths:
         if length % 2 == 0:
@@ -83,14 +110,9 @@ def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False):
         # For a sentence-pair dataset, the longer of the two sentences
         # determines in which bucket the pair goes :(
         max_transitions = max(len(example[transitions_key]) for transitions_key, _, _ in keys)
-        for transitions_key, tokens_key, len_key in keys:
-            # Pad everything at right.
-            example[len_key] = max_transitions
-            nearest_bucket = get_nearest_bucket(example[len_key])
-            example[transitions_key] += [0] * (nearest_bucket - len(example[transitions_key]))
 
-            max_tokens = (nearest_bucket + 1) / 2
-            example[tokens_key] += [0] * (max_tokens - len(example[tokens_key]))
+        nearest_bucket = get_nearest_bucket(max_transitions)
+        example = PadExample(example, max_transitions, nearest_bucket, keys)
 
         buckets[nearest_bucket].append(example)
 

@@ -12,8 +12,9 @@ class ThinStack(object):
 
     def __init__(self, compose_fn, tracking_fn, transition_fn, batch_size,
                  vocab_size, num_timesteps, model_dim, embedding_dim,
-                 tracking_dim, embeddings=None, embedding_initializer=None,
-                 embedding_project_fn=None, scope=None):
+                 tracking_dim, is_training, embeddings=None,
+                 embedding_initializer=None, embedding_project_fn=None,
+                 scope=None):
         assert num_timesteps % 2 == 1, "Require odd number of timesteps for binary SR parser"
 
         self.compose_fn = compose_fn
@@ -29,6 +30,8 @@ class ThinStack(object):
         self.model_dim = model_dim
         self.embedding_dim = embedding_dim
         self.tracking_dim = tracking_dim
+
+        self.is_training = is_training
 
         # Helpers
         self.batch_range_i = tf.range(self.batch_size)
@@ -145,14 +148,17 @@ class ThinStack(object):
 
         # Compute new recurrent and recursive values.
         tracking_value_ = self.tracking_fn(self.tracking_value, (stack1, stack2, buff_top))
-        # TODO (the one comment from CM): Make a tunable lookahead parameter that sets 
+        # TODO (the one comment from CM): Make a tunable lookahead parameter that sets
         # how much of the buffer is accessed here.
 
         reduce_value = self.compose_fn((stack1, stack2), tracking_value_)
 
         if self.transition_fn is not None:
             p_transitions_t = self.transition_fn([tracking_value_, stack1, stack2, buff_top])
-            sample_t = tf.to_float(tf.multinomial(p_transitions_t, 1))
+            # Sample at train-time; argmax at test-time
+            sample_train_t = tf.to_float(tf.multinomial(p_transitions_t, 1))
+            sample_test_t = tf.to_float(tf.argmax(p_transitions_t, 1))
+            sample_t = tf.cond(self.is_training, sample_train_t, sample_test_t)
 
             must_shift = tf.to_float(self.cursors < 1)
             must_reduce = tf.to_float(self.buff_cursors >= tf.to_float(self.num_transitions + 1) / 2.0)
