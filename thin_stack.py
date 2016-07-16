@@ -160,6 +160,7 @@ class ThinStack(object):
                     lambda: tf.multinomial(p_transitions_t, 1),
                     lambda: tf.argmax(p_transitions_t, 1))
             sample_t = tf.to_float(sample_t)
+            sample_t.set_shape((self.batch_size,))
 
             must_shift = tf.to_float(self.cursors < 1)
             must_reduce = tf.to_float(self.buff_cursors >= tf.to_float(self.num_transitions + 1) / 2.0)
