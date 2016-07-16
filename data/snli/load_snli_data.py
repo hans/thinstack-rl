@@ -4,6 +4,8 @@ import json
 
 SENTENCE_PAIR_DATA = True
 
+NUM_CLASSES = 3
+
 LABEL_MAP = {
     "entailment": 0,
     "neutral": 1,

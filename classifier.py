@@ -15,7 +15,7 @@ import util
 FLAGS = gflags.FLAGS
 
 Data = namedtuple("Data", ["train_iter", "eval_iters", "buckets", "vocabulary",
-                           "is_pair_data", "train_embeddings"])
+                           "is_pair_data", "train_embeddings", "num_classes"])
 Graph = namedtuple("Graph", ["stacks", "logits", "ys", "gradients",
                              "num_timesteps", "train_op", "summary_op",
                              "is_training"])
@@ -82,7 +82,7 @@ def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
     return (ts,), logits, ys, gradients
 
 
-def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_training,
+def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_training, num_classes,
                               train_embeddings=True, initial_embeddings=None):
     initializer = tf.random_uniform_initializer(-0.005, 0.005)
     with tf.variable_scope("PairModel", initializer=initializer):
@@ -152,7 +152,7 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_train
                     lambda: mlp_input / FLAGS.sentence_repr_keep_rate)
 
         logits = classifier_fn(mlp_input)
-        assert logits.get_shape()[1] == FLAGS.num_classes
+        assert logits.get_shape()[1] == num_classes
 
         xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
         xent_loss = tf.reduce_mean(xent_loss)
@@ -257,7 +257,7 @@ def prepare_data():
         eval_iterators.append((name, iterator))
 
     return Data(iterator, eval_iterators, buckets, vocabulary,
-                sentence_pair_data, train_embeddings)
+                sentence_pair_data, train_embeddings, data_manager.NUM_CLASSES) 
 
 
 def build_graphs(model_fn, buckets):
@@ -337,12 +337,13 @@ def main():
         embeddings = None
 
     tf.logging.info("Building training graphs.")
-    classifier_fn = partial(mlp_classifier, num_classes=FLAGS.num_classes)
+    classifier_fn = partial(mlp_classifier)
     model_fn = build_sentence_pair_model if data.is_pair_data else build_model
     model_fn = partial(model_fn, vocab_size=len(data.vocabulary),
                        classifier_fn=classifier_fn,
                        train_embeddings=data.train_embeddings,
-                       initial_embeddings=embeddings)
+                       initial_embeddings=embeddings,
+                       num_classes=data.num_classes)
     graphs, global_step = build_graphs(model_fn, data.buckets)
 
     summary_op = tf.merge_all_summaries()
@@ -391,7 +392,6 @@ if __name__ == '__main__':
 
     gflags.DEFINE_integer("batch_size", 64, "")
     gflags.DEFINE_string("buckets", "17,171", "")
-    gflags.DEFINE_integer("num_classes", 3, "")
 
     gflags.DEFINE_integer("model_dim", 128, "")
     gflags.DEFINE_integer("embedding_dim", 128, "")
