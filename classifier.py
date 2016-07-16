@@ -274,14 +274,13 @@ def build_graphs(model_fn, buckets):
             stacks, logits, ys, gradients = model_fn(num_timesteps,
                                                      is_training=is_training)
 
-            for index, pair in enumerate(gradients):
-                gradient, param = pair
+            params = set()
+            for gradient, param in gradients:
+                params.add(param)
                 if gradient is not None:
-                    # Indicies are a quick hack.
-                    # Multiple gradients/params with same name aren't laid out properly.
-                    tf.histogram_summary(gradient.name + "(" + str(index) + ")", gradient)
-                    tf.histogram_summary(param.name + "(" + str(index) + ")", param)
-
+                    tf.histogram_summary(gradient.name, gradient)
+            for param in params:
+                tf.histogram_summary(param.name, param)
 
             train_op = opt.apply_gradients(gradients, global_step)
 
