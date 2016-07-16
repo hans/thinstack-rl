@@ -274,13 +274,14 @@ def build_graphs(model_fn, buckets):
             stacks, logits, ys, gradients = model_fn(num_timesteps,
                                                      is_training=is_training)
 
+            # Set up histogram displays
             params = set()
             for gradient, param in gradients:
                 params.add(param)
                 if gradient is not None:
-                    tf.histogram_summary(gradient.name, gradient)
+                    tf.histogram_summary(gradient.name + "b%i" % num_timesteps, gradient)
             for param in params:
-                tf.histogram_summary(param.name, param)
+                tf.histogram_summary(param.name + "b%i" % num_timesteps, param)
 
             train_op = opt.apply_gradients(gradients, global_step)
 
