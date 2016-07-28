@@ -4,7 +4,6 @@ import sys
 import tensorflow as tf
 
 so_path = os.path.join(os.path.dirname(__file__), "libthin_stack_ops_impl_gpu.so")
-print so_path
 try:
     _library = tf.load_op_library(so_path)
 
