@@ -35,6 +35,25 @@ def _thin_stack_lookup_shape(op):
     return [stack_el_shape, stack_el_shape, buf_el_shape, stack2_ptrs_shape]
 
 
+def _fetch_stack(stack):
+    """
+    Given some Tensor which is a function of the `stack` variable,
+    return the original stack variable contained within the op.
+    """
+
+    while stack.op.type != "Variable":
+        if stack.op.type == "ThinStackUpdate":
+            stack = stack.op.inputs[2]
+        elif stack.op.type == "ThinStackLookup":
+            stack = stack.op.inputs[0]
+        elif stack.op.type == "Identity":
+            stack = stack.op.inputs[0]
+        else:
+            raise RuntimeError("unknown op")
+
+    return stack
+
+
 def _fetch_buffer_cursors(buffer_cursors):
   """
   Given some Tensor which is a function of the `buffer_cursors` variable,
@@ -126,6 +145,7 @@ def _thin_stack_update_shape(op):
 
 @ops.RegisterGradient("ThinStackUpdate")
 def _thin_stack_update_gradient(op, stack_grad, *rest):
+    stack = op.inputs[2]
     batch_size = op.inputs[4].get_shape().as_list()[0]
     t = op.get_attr("timestep")
 
@@ -134,12 +154,15 @@ def _thin_stack_update_gradient(op, stack_grad, *rest):
     # generate a sparse gradient in the backward pass. Nix this sparsity
     # at the very start.
     if isinstance(stack_grad, ops.IndexedSlices):
-        print stack_grad.dense_shape
-        num_rows = stack_grad.dense_shape[0]
-        assert num_rows is not None, \
-                "Need fixed stack size for efficient sparse-to-dense in backprop."
-        stack_grad = tf.unsorted_segment_sum(
-                stack_grad.values, stack_grad.indices, num_rows)
+        # Trick: re-use our stack structure to store new gradients.
+        # Recover the original stack variable from the lookup/update chain.
+        stack = _fetch_stack(stack)
 
-    input_grad = tf.slice(stack_grad, [t * batch_size, 0], [batch_size, -1])
+        stack = tf.assign(stack, tf.zeros_like(stack))
+        stack = tf.scatter_update(stack, stack_grad.indices, stack_grad.values)
+        stack_grad = stack
+
+    with tf.control_dependencies([stack_grad]):
+        input_grad = tf.slice(stack_grad, [t * batch_size, 0], [batch_size, -1])
+
     return input_grad, None, stack_grad, None, None, None
