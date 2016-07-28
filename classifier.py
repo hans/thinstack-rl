@@ -258,7 +258,7 @@ def prepare_data():
         eval_iterators.append((name, iterator))
 
     return Data(iterator, eval_iterators, buckets, vocabulary,
-                sentence_pair_data, train_embeddings, data_manager.NUM_CLASSES) 
+                sentence_pair_data, train_embeddings, data_manager.NUM_CLASSES)
 
 
 def build_graphs(model_fn, buckets):
@@ -375,7 +375,7 @@ def main():
         for step, (bucket, batch_data) in zip(xrange(FLAGS.training_steps), data.train_iter):
             if step % 100 == 0:
                 tf.logging.info("%i", step)
-            if sv.should_stop():
+            if sv.should_stop() or step == FLAGS.training_steps:
                 break
 
             do_summary = step % FLAGS.summary_step_interval == 0
