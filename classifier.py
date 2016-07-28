@@ -417,7 +417,7 @@ if __name__ == '__main__':
     gflags.DEFINE_boolean("use_difference_feature", True, "")
     gflags.DEFINE_boolean("use_product_feature", True, "")
 
-    gflags.DEFINE_float("learning_rate", 0.01, "")
+    gflags.DEFINE_float("learning_rate", 3e-4, "")
     gflags.DEFINE_float("l2_lambda", 0.0, "")
 
     gflags.DEFINE_enum("data_type", "arithmetic", ["arithmetic", "snli"], "")
