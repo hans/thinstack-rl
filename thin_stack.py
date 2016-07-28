@@ -5,7 +5,7 @@ import numpy as np
 import tensorflow as tf
 
 import util
-from util.floaty_ops import floaty_gather, floaty_scatter_update, unsafe_floaty_gather
+from util.custom_ops import thin_stack_lookup, thin_stack_update
 
 
 class ThinStack(object):
@@ -97,9 +97,6 @@ class ThinStack(object):
         self.cursors = tf.Variable(tf.ones((self.batch_size,), dtype=tf.float32) * - 1,
                                    trainable=False, name="cursors")
 
-        self.bwd_stack = tf.Variable(tf.zeros(stack_shape), trainable=False,
-                                     name="bwd_stack")
-
         # TODO make parameterizable
         self.tracking_value = tf.Variable(tf.zeros((self.batch_size, self.tracking_dim), dtype=tf.float32),
                                           trainable=False, name="tracking_value")
@@ -107,44 +104,14 @@ class ThinStack(object):
         # Create an Op which will (re-)initialize the auxiliary variables
         # declared above.
         self._aux_vars = [self.stack, self.queue, self.buff_cursors, self.cursors,
-                          self.tracking_value, self.bwd_stack]
+                          self.tracking_value]
         self.variable_initializer = tf.initialize_variables(self._aux_vars)
 
-    def _update_stack(self, t, shift_value, reduce_value, transitions_t):
-        mask = tf.expand_dims(transitions_t, 1)
-        top_next = mask * reduce_value + (1 - mask) * shift_value
-
-        stack_idxs = float(t) * self.batch_size + self.batch_range
-        stack_next = floaty_scatter_update(self.stack, stack_idxs, top_next,
-                                           name="stack_update")
-
-        cursors_next = self.cursors + (transitions_t * -1 + (1 - transitions_t) * 1)
-
-        queue_idxs = cursors_next * self.batch_size + self.batch_range
-        # TODO: enforce transition validity instead of this hack
-        queue_idxs = tf.maximum(queue_idxs, 0)
-        queue_next = floaty_scatter_update(self.queue, queue_idxs,
-                                           tf.fill((self.batch_size,), float(t)),
-                                           name="queue_update")
-
-        return stack_next, queue_next, cursors_next
-
-    def _lookup(self, t):
-        stack1_ptrs = float(t - 1) * self.batch_size + self.batch_range
-        stack1 = unsafe_floaty_gather(self.stack, tf.maximum(0.0, stack1_ptrs), self.bwd_stack, name="stack1_fetch")
-
-        queue_ptrs = (self.cursors - 1) * self.batch_size + self.batch_range
-        stack2_ptrs = floaty_gather(self.queue, tf.maximum(0.0, queue_ptrs)) * self.batch_size + self.batch_range
-        stack2 = unsafe_floaty_gather(self.stack, stack2_ptrs, self.bwd_stack, name="stack2_fetch")
-
-        buff_idxs = (self.buff_cursors * self.batch_size) + self.batch_range
-        # TODO: enforce transition validity instead of this hack
-        buff_idxs = tf.maximum(0.0, tf.minimum(buff_idxs, (self.buff_size * self.batch_size) - 1))
-        buff_top = floaty_gather(self.buff_embeddings, buff_idxs)
-        return stack1, stack2, buff_top
-
     def _step(self, t, transitions_t):
-        stack1, stack2, buff_top = self._lookup(t)
+        stack1, stack2, buff_top, _ = \
+                thin_stack_lookup(self.stack, self.buff_embeddings, self.queue,
+                                  self.cursors, self.buff_cursors,
+                                  transitions_t, t, name="ts_lookup_%i" % t)
 
         # Compute new recurrent and recursive values.
         tracking_value_ = self.tracking_fn(self.tracking_value, (stack1, stack2, buff_top))
@@ -170,11 +137,18 @@ class ThinStack(object):
         else:
             p_transitions_t = None
 
-        stack_, queue_, cursors_ = \
-                self._update_stack(t, buff_top, reduce_value, transitions_t)
-        buff_cursors_ = self.buff_cursors + 1 - transitions_t
+        # Switch between two input options.
+        # TODO: can accomplish with batched tf.select or something?
+        mask = tf.expand_dims(transitions_t, 1)
+        input_val = mask * reduce_value + (1. - mask) * buff_top
 
-        return stack_, queue_, cursors_, buff_cursors_, tracking_value_, \
+        updates = thin_stack_update(input_val, transitions_t, self.stack,
+                                    self.queue, self.cursors,
+                                    self.buff_cursors, t,
+                                    name="ts_update_%i" % t)
+        stack, queue, cursors, buff_cursors = updates
+
+        return stack, queue, cursors, buff_cursors, tracking_value_, \
                 p_transitions_t, transitions_t
 
     def forward(self):
@@ -192,15 +166,18 @@ class ThinStack(object):
         # TODO: deep! just rerun with a new compose fn and use multiple stacks,
         # reading from previous and writing to next, with fixed transitions on
         # higher layers
+        previous_updates = [tf.constant(0.0)]
         for t, transitions_t in enumerate(self.transitions):
             if t > 0:
                 self._scope.reuse_variables()
 
-            with tf.control_dependencies([self.stack, self.queue]):
+            with tf.control_dependencies(previous_updates):
                 ret = self._step(t, transitions_t)
 
             self.stack, self.queue, self.cursors, self.buff_cursors = ret[:4]
             self.tracking_value, self.p_transitions[t], self.sampled_transitions[t] = ret[4:]
+
+            previous_updates = [val for val in ret if val is not None]
 
 
     def reset(self, session):
@@ -225,11 +202,12 @@ def main():
         compose_fn = lambda (x, y), *ext: x + y
         tracking_fn = lambda *xs: xs[0]
         def transition_fn(*xs):
-            return [[-10., -10.] for i in range(3)]
+            return tf.constant([[-10., -10.] for i in range(3)])
 
-        ts = ThinStack(compose_fn, tracking_fn, transition_fn, batch_size,
+        ts = ThinStack(compose_fn, tracking_fn, None, batch_size,
                        vocab_size, num_timesteps, model_dim, embedding_dim,
-                       tracking_dim, embedding_initializer=integer_embedding_initializer)
+                       tracking_dim, tf.constant(True),
+                       embedding_initializer=integer_embedding_initializer)
 
     data = [{'label': 10,
           'len': 5,
@@ -247,15 +225,22 @@ def main():
           'tokens': [1, 2, 3, 3, 1],
           'transitions': [0, 0, 0, 0, 0, 1, 1, 1, 1]}]
 
-    X, transitions, y, lengths = util.data.BucketToArrays(data, 9)
-    buff = np.concatenate([xt[:, np.newaxis] for xt in X], axis=1)
+    class FakeDataManager(object):
+        SENTENCE_PAIR_DATA = False
+        class FakeLabelMap(dict):
+            def __getitem__(self, key):
+                return key
+        LABEL_MAP = FakeLabelMap()
+
+    X, transitions, lengths, y = util.data.BucketToArrays(data, FakeDataManager())
+    buff = X[:, 0, :].T
 
     s.run(tf.initialize_variables(tf.trainable_variables()))
     ts.reset(s)
 
-    feed = {ts.transitions[t]: transitions[:, t] for t in range(num_timesteps)}
+    feed = {ts.transitions[t]: transitions[:, 0, t] for t in range(num_timesteps)}
     feed[ts.buff] = buff
-    feed[ts.num_transitions] = lengths
+    feed[ts.num_transitions] = lengths[:, 0]
     print s.run([ts.indexable_stack, ts.final_representations], feed)
 
 
