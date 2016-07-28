@@ -381,7 +381,7 @@ def main():
             do_summary = step % FLAGS.summary_step_interval == 0
             profiler = run_metadata if FLAGS.profile and do_summary else None
             ret = run_batch(sess, graphs[bucket], batch_data,
-                            do_summary, profiler)
+                            do_summary, profiler=profiler)
 
             if do_summary:
                 sv.summary_computed(sess, ret)
