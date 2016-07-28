@@ -129,5 +129,17 @@ def _thin_stack_update_gradient(op, stack_grad, *rest):
     batch_size = op.inputs[4].get_shape().as_list()[0]
     t = op.get_attr("timestep")
 
+    # We usually slice off the head of the stack output in feedforward and
+    # send it off to downstream computation. The Slice feedforward op will
+    # generate a sparse gradient in the backward pass. Nix this sparsity
+    # at the very start.
+    if isinstance(stack_grad, ops.IndexedSlices):
+        print stack_grad.dense_shape
+        num_rows = stack_grad.dense_shape[0]
+        assert num_rows is not None, \
+                "Need fixed stack size for efficient sparse-to-dense in backprop."
+        stack_grad = tf.unsorted_segment_sum(
+                stack_grad.values, stack_grad.indices, num_rows)
+
     input_grad = tf.slice(stack_grad, [t * batch_size, 0], [batch_size, -1])
     return input_grad, None, stack_grad, None, None, None
