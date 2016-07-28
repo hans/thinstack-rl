@@ -1,4 +1,5 @@
 import os
+import uuid
 
 import tensorflow as tf
 from tensorflow.python.framework.load_library import load_op_library
@@ -85,8 +86,10 @@ def _thin_stack_lookup_gradient(op, grad_stack1, grad_stack2, grad_buf_top, _):
     batch_range = math_ops.range(batch_size)
     batch_range_i = tf.to_float(batch_range)
 
-    grad_stack = gen_state_ops._temporary_variable(stack.get_shape().as_list(), tf.float32, "grad_stack%i" % t)
-    grad_buffer = gen_state_ops._temporary_variable(buffer.get_shape().as_list(), tf.float32, "grad_buffer%i" % t)
+    grad_stack_name = "grad_stack_%i_%s" % (t, str(uuid.uuid4())[:15])
+    grad_buffer_name = "grad_buffer_%i_%s" % (t, str(uuid.uuid4())[:15])
+    grad_stack = gen_state_ops._temporary_variable(stack.get_shape().as_list(), tf.float32, grad_stack_name)
+    grad_buffer = gen_state_ops._temporary_variable(buffer.get_shape().as_list(), tf.float32, grad_buffer_name)
     grad_stack = tf.assign(grad_stack, tf.zeros_like(grad_stack))
     grad_buffer = tf.assign(grad_buffer, tf.zeros_like(grad_buffer))
 
@@ -106,8 +109,8 @@ def _thin_stack_lookup_gradient(op, grad_stack1, grad_stack2, grad_buf_top, _):
     grad_buffer = floaty_scatter_add(grad_buffer, buffer_ptrs, grad_buf_top)
 
     with tf.control_dependencies([grad_stack, grad_buffer]):
-      grad_stack = gen_state_ops._destroy_temporary_variable(grad_stack, "grad_stack%i" % t)
-      grad_buffer = gen_state_ops._destroy_temporary_variable(grad_buffer, "grad_buffer%i" % t)
+      grad_stack = gen_state_ops._destroy_temporary_variable(grad_stack, grad_stack_name)
+      grad_buffer = gen_state_ops._destroy_temporary_variable(grad_buffer, grad_buffer_name)
 
       with tf.control_dependencies([grad_stack, grad_buffer]):
         return grad_stack, grad_buffer, None, None, None, None
