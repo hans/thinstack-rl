@@ -159,7 +159,9 @@ def _compute_numeric_jacobian(x, x_shape, x_data, y, y_shape, delta, feed_dict,
   # subtracting a delta and then compute difference between the outputs. This
   # will give us one row of the Jacobian matrix.
   feed_copy = copy.copy(feed_dict) if feed_dict is not None else {}
-  for row in range(min(x_size, limit)):
+  if limit > 0:
+      x_size = min(x_size, limit)
+  for row in range(x_size):
     x_pos = x_data.copy()
     x_neg = x_data.copy()
     x_pos.ravel().view(x_dtype)[row] += delta
@@ -364,9 +366,10 @@ def compute_gradient_error(x,
   error = {}
   for x, (j_t, j_n) in zip(x, grad):
     if j_t.size or j_n.size:  # Handle zero size tensors correctly
-      diff = np.fabs(j_t - j_n).flat
+      diff = np.fabs(j_t - j_n)
       # Mask out differences that we didn't calculate fully.
-      diff = diff[:limit]
+      if limit > 0:
+          diff = diff.flat[:limit]
 
       error[x] = diff.max()
   return error
