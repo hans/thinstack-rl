@@ -3,6 +3,7 @@ from functools import partial
 import sys
 
 import gflags
+import numpy as np
 import tensorflow as tf
 from tensorflow.contrib import layers
 
@@ -11,6 +12,7 @@ from data.snli import load_snli_data
 from reinforce import reinforce_episodic_gradients
 from thin_stack import ThinStack
 import util
+from util import gradient_checker
 
 FLAGS = gflags.FLAGS
 
@@ -296,6 +298,84 @@ def build_graphs(model_fn, buckets):
     return graphs, global_step
 
 
+def gradient_check(classifier_graph, num_classes):
+    """
+    Run a numerical gradient check over a classifier graph.
+    """
+
+    inputs = tf.trainable_variables()
+    for stack in classifier_graph.stacks:
+        inputs.extend([stack.buff_embeddings]) # TODO: add more
+
+    input_shapes = [x.get_shape() for x in inputs]
+    for input_shape in input_shapes:
+        input_shape.assert_is_fully_defined()
+    input_shapes = [shape.as_list() for shape in input_shapes]
+
+    y = classifier_graph.logits
+    y_shape = y.get_shape()
+    y_shape.assert_is_fully_defined()
+    y_shape = y_shape.as_list()
+
+    # Generate arbitrary inputs to sub in for placeholders. For values here
+    # which are also in `inputs` above, they will be properly replaced by
+    # the test input.
+    feed_dict = {
+        classifier_graph.ys: np.random.randint(0, num_classes, FLAGS.batch_size),
+        classifier_graph.is_training: True,
+    }
+    for stack in classifier_graph.stacks:
+        feed_dict[stack.buff] = np.random.randint(0, stack.vocab_size,
+                (stack.buff_size, FLAGS.batch_size))
+
+        assert classifier_graph.num_timesteps >= 5
+        num_transitions = np.random.randint(3, classifier_graph.num_timesteps, FLAGS.batch_size)
+        # Make sure we have odd number of transitions
+        num_transitions += 1 - (num_transitions % 2 == 1)
+        feed_dict[stack.num_transitions] = num_transitions
+
+        # Generate valid transition sequences.
+        transitions = []
+        for i, num_transitions_i in zip(range(FLAGS.batch_size), num_transitions):
+            num_tokens = (num_transitions_i + 1) / 2
+            transitions_i = []
+            stack_size, num_shifts = 0, 0
+            for t in range(num_transitions_i):
+                if stack_size == num_transitions_i - t:
+                    transition_i_t = 1
+                elif stack_size >= 2 and num_shifts < num_tokens:
+                    transition_i_t = np.random.randint(0, 2)
+                elif num_shifts < num_tokens:
+                    transition_i_t = 0
+                else:
+                    transition_i_t = 1
+
+                if transition_i_t == 0:
+                    stack_size += 1
+                    num_shifts += 1
+                elif transition_i_t == 1:
+                    stack_size -= 1
+
+                transitions_i.append(transition_i_t)
+
+            assert stack_size == 1
+            transitions_i += [0] * (stack.num_timesteps - num_transitions_i)
+            transitions.append(transitions_i)
+
+        transitions = np.array(transitions).T
+        for t, transitions_t in enumerate(transitions):
+            feed_dict[stack.transitions[t]] = transitions_t
+
+    with tf.Session(FLAGS.master) as s:
+        s.run(tf.initialize_variables(tf.trainable_variables()))
+        for stack in classifier_graph.stacks:
+            stack.reset(s)
+        err = gradient_checker.compute_gradient_error(inputs, input_shapes,
+                                                      y, y_shape,
+                                                      feed_dict=feed_dict)
+    return err
+
+
 def run_batch(sess, graph, batch_data, do_summary=True, is_training=True,
               profiler=None):
     for stack in graph.stacks:
@@ -357,6 +437,10 @@ def main():
                        num_classes=data.num_classes)
     graphs, global_step = build_graphs(model_fn, data.buckets)
 
+    if FLAGS.gradient_check:
+        gradient_check(graphs.values()[0], data.num_classes)
+        sys.exit()
+
     summary_op = tf.merge_all_summaries()
     no_op = tf.constant(0.0)
 
@@ -399,7 +483,9 @@ if __name__ == '__main__':
     gflags.DEFINE_string("logdir", "/tmp/rl-stack", "")
     gflags.DEFINE_integer("summary_step_interval", 100, "")
     gflags.DEFINE_integer("training_steps", 10000, "")
+
     gflags.DEFINE_boolean("profile", False, "")
+    gflags.DEFINE_boolean("gradient_check", False, "")
 
     gflags.DEFINE_integer("batch_size", 64, "")
     gflags.DEFINE_string("buckets", "17,171", "")
