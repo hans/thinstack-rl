@@ -18,8 +18,8 @@ FLAGS = gflags.FLAGS
 Data = namedtuple("Data", ["train_iter", "eval_iters", "buckets", "vocabulary",
                            "is_pair_data", "train_embeddings", "num_classes"])
 Graph = namedtuple("Graph", ["stacks", "logits", "ys", "gradients",
-                             "num_timesteps", "train_op", "summary_op",
-                             "is_training"])
+                             "num_timesteps", "learning_rate", "train_op",
+                             "summary_op", "is_training"])
 
 
 def mlp_classifier(x, num_classes, mlp_dims=(1024,1024), scope=None):
@@ -259,14 +259,15 @@ def prepare_data():
         eval_iterators.append((name, iterator))
 
     return Data(iterator, eval_iterators, buckets, vocabulary,
-                sentence_pair_data, train_embeddings, data_manager.NUM_CLASSES) 
+                sentence_pair_data, train_embeddings, data_manager.NUM_CLASSES)
 
 
 def build_graphs(model_fn, buckets):
     graphs = {}
     global_step = tf.Variable(0, trainable=False, name="global_step")
+    learning_rate = tf.placeholder(tf.float32, (), name="learning_rate")
     is_training = tf.placeholder(tf.bool, (), name="is_training")
-    opt = tf.train.AdamOptimizer(FLAGS.learning_rate)
+    opt = tf.train.RMSPropOptimizer(learning_rate)
 
     for i, num_timesteps in enumerate(buckets):
         summaries_so_far = set(tf.get_collection(tf.GraphKeys.SUMMARIES))
@@ -284,21 +285,28 @@ def build_graphs(model_fn, buckets):
             for param in params:
                 tf.histogram_summary(param.name + "b%i" % num_timesteps, param)
 
-            train_op = opt.apply_gradients(gradients, global_step)
+            # Clip gradients.
+            clipped_gradients = tf.clip_by_global_norm(
+                    [grad for grad, param in gradients], FLAGS.grad_clip)
+            clipped_gradients = zip(clipped_gradients,
+                                    [param for _, param in gradients])
+
+            train_op = opt.apply_gradients(clipped_gradients, global_step)
 
             new_summary_ops = tf.get_collection(tf.GraphKeys.SUMMARIES)
             new_summary_ops = set(new_summary_ops) - summaries_so_far
             summary_op = tf.merge_summary(list(new_summary_ops))
 
-            graphs[num_timesteps] = Graph(stacks, logits, ys, gradients,
-                                          num_timesteps, train_op, summary_op,
+            graphs[num_timesteps] = Graph(stacks, logits, ys, clipped_gradients,
+                                          num_timesteps, learning_rate,
+                                          train_op, summary_op,
                                           is_training)
 
     return graphs, global_step
 
 
-def run_batch(sess, graph, batch_data, do_summary=True, is_training=True,
-              profiler=None):
+def run_batch(sess, graph, batch_data, learning_rate, do_summary=True,
+              is_training=True, profiler=None):
     for stack in graph.stacks:
         stack.reset(sess)
 
@@ -309,7 +317,11 @@ def run_batch(sess, graph, batch_data, do_summary=True, is_training=True,
     X, transitions, num_transitions, ys = batch_data
 
     # Prepare feed dict
-    feed = {}
+    feed = {
+        graph.ys: ys,
+        graph.learning_rate: learning_rate,
+        graph.is_training: is_training,
+    }
     for i, stack in enumerate(graph.stacks):
         # Swap batch axis to front.
         X_i = X[:, i].T
@@ -319,8 +331,6 @@ def run_batch(sess, graph, batch_data, do_summary=True, is_training=True,
                      for t in range(graph.num_timesteps)})
         feed[stack.buff] = X_i
         feed[stack.num_transitions] = num_transitions[:, i]
-    feed[graph.ys] = ys
-    feed[graph.is_training] = is_training
 
     # Sub in a no-op for summary op if we don't want to compute summaries.
     summary_op_ = graph.summary_op
@@ -382,9 +392,11 @@ def main():
             if sv.should_stop():
                 break
 
+            learning_rate = FLAGS.learning_rate * (FLAGS.learning_rate_decay_per_10k_steps ** (step / 10000.0))
+
             do_summary = step % FLAGS.summary_step_interval == 0
             profiler = run_metadata if FLAGS.profile and do_summary else None
-            ret = run_batch(sess, graphs[bucket], batch_data,
+            ret = run_batch(sess, graphs[bucket], batch_data, learning_rate,
                             do_summary, profiler)
 
             if do_summary:
@@ -422,6 +434,8 @@ if __name__ == '__main__':
     gflags.DEFINE_boolean("use_product_feature", True, "")
 
     gflags.DEFINE_float("learning_rate", 0.01, "")
+    gflags.DEFINE_float("learning_rate_decay_per_10k_steps", 0.75, "")
+    gflags.DEFINE_float("grad_clip", 5.0, "")
     gflags.DEFINE_float("l2_lambda", 0.0, "")
 
     gflags.DEFINE_enum("data_type", "arithmetic", ["arithmetic", "snli"], "")
