@@ -46,6 +46,61 @@ def build_rewards(classifier_logits, ys):
                                 ys))
 
 
+def build_rnn_model(num_timesteps, vocab_size, classifier_fn, is_training, num_classes,
+                                  train_embeddings=True, initial_embeddings=None):
+    with tf.variable_scope("rnn"):
+        ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
+
+        assert FLAGS.model_dim % 2 == 0, "model_dim must be even; we're using LSTM memory cels which are divided in half"
+
+        s1_inputs = [tf.placeholder(tf.int32, (FLAGS.batch_size,), "s1_input_%i" % t)
+                     for t in range(num_timesteps)]
+        s1_lengths = tf.placeholder(tf.int32, (FLAGS.batch_size,), "s1_lengths")
+
+        with tf.device("/cpu:0"):
+            embeddings = tf.get_variable("embeddings", (vocab_size, FLAGS.embedding_dim))
+            s1_embedded = [tf.nn.embedding_lookup(embeddings, s1_input_t)
+                           for s1_input_t in s1_inputs]
+
+        cell = tf.nn.rnn_cell.BasicLSTMCell(FLAGS.model_dim / 2)
+        with tf.variable_scope("s1"):
+            _, s1_state = tf.nn.rnn(cell, s1_embedded, dtype=tf.float32,
+                                    sequence_length=s1_lengths)
+
+        mlp_input = s1_state
+        if FLAGS.sentence_repr_batch_norm:
+            mlp_input = layers.batch_norm(mlp_input, center=True, scale=True,
+                                          is_training=True, scope="sentence_repr_bn")
+        if FLAGS.sentence_repr_keep_rate < 1.0:
+            mlp_input = tf.cond(is_training,
+                    lambda: tf.nn.dropout(mlp_input, FLAGS.sentence_repr_keep_rate,
+                                          name="sentence_repr_dropout"),
+                    lambda: mlp_input / FLAGS.sentence_repr_keep_rate)
+
+        logits = classifier_fn(mlp_input)
+        assert logits.get_shape()[1] == num_classes
+
+        xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
+        xent_loss = tf.reduce_mean(xent_loss)
+        tf.scalar_summary("xent_loss", xent_loss)
+
+        rewards = build_rewards(logits, ys)
+        tf.scalar_summary("avg_reward", tf.reduce_mean(rewards))
+
+        params = tf.trainable_variables()
+        if not train_embeddings:
+            params.remove(embeddings)
+
+        l2_loss = tf.add_n([tf.reduce_sum(tf.square(param))
+                            for param in params])
+        tf.scalar_summary("l2_loss", l2_loss)
+        total_loss = xent_loss + FLAGS.l2_lambda * l2_loss
+
+        gradients = zip(tf.gradients(total_loss, params), params)
+
+    return ((s1_inputs, s1_lengths)), logits, ys, gradients
+
+
 def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
                 train_embeddings=True, initial_embeddings=None, num_classes=3):
     with tf.variable_scope("Model", initializer=util.HeKaimingInitializer()):
@@ -87,7 +142,7 @@ def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
 
 def build_sentence_pair_rnn_model(num_timesteps, vocab_size, classifier_fn, is_training, num_classes,
                                   train_embeddings=True, initial_embeddings=None):
-    with tf.VariableScope("PairRNNModel"):
+    with tf.variable_scope("PairRNNModel"):
         ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
 
         assert FLAGS.model_dim % 2 == 0, "model_dim must be even; we're using LSTM memory cels which are divided in half"
@@ -463,7 +518,7 @@ def gradient_check(classifier_graph, num_classes):
                                                       feed_dict=feed_dict,
                                                       limit=5)
 
-        pprint({var.name: value for var, value in err})
+        pprint({var.name: value for var, value in err.items()})
 
     return err
 
@@ -522,9 +577,8 @@ def main():
     tf.logging.info("Building training graphs.")
     classifier_fn = partial(mlp_classifier, num_classes=data.num_classes)
     if FLAGS.model == "rnn":
-        if not data.is_pair_data:
-            raise ValueError("RNN only built for pair data.")
-        model_fn = build_sentence_pair_rnn_model
+        model_fn = build_sentence_pair_rnn_model if data.is_pair_data \
+                else build_rnn_model
     else:
         model_fn = build_sentence_pair_model if data.is_pair_data else build_model
     model_fn = partial(model_fn, vocab_size=len(data.vocabulary),
