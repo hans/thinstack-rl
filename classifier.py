@@ -85,6 +85,93 @@ def build_model(num_timesteps, vocab_size, classifier_fn, is_training,
     return (ts,), logits, ys, gradients
 
 
+def build_sentence_pair_rnn_model(num_timesteps, vocab_size, classifier_fn, is_training, num_classes,
+                                  train_embeddings=True, initial_embeddings=None):
+    with tf.VariableScope("PairRNNModel"):
+        ys = tf.placeholder(tf.int32, (FLAGS.batch_size,), "ys")
+
+        assert FLAGS.model_dim % 2 == 0, "model_dim must be even; we're using LSTM memory cels which are divided in half"
+
+        def embedding_project_fn(embeddings):
+            if FLAGS.embedding_dim != FLAGS.model_dim:
+                # Need to project embeddings to model dimension.
+                embeddings = util.Linear(embeddings, FLAGS.model_dim, bias=False)
+            if FLAGS.embedding_batch_norm:
+                embeddings = layers.batch_norm(embeddings, center=True, scale=True,
+                                            is_training=True)
+            if FLAGS.embedding_keep_rate < 1.0:
+                embeddings = tf.cond(is_training,
+                        lambda: tf.nn.dropout(embeddings, FLAGS.embedding_keep_rate),
+                        lambda: embeddings / FLAGS.embedding_keep_rate)
+            return embeddings
+
+        # Share scope across the two models. (==> shared embedding projection /
+        # BN weights)
+        embedding_project_fn = tf.make_template("embedding_project", embedding_project_fn)
+
+        s1_inputs = [tf.placeholder(tf.int32, (FLAGS.batch_size,), "s1_input_%i" % t)
+                     for t in range(num_timesteps)]
+        s2_inputs = [tf.placeholder(tf.int32, (FLAGS.batch_size,), "s2_input_%i" % t)
+                     for t in range(num_timesteps)]
+        s1_lengths = tf.placeholder(tf.int32, (FLAGS.batch_size,), "s1_lengths")
+        s2_lengths = tf.placeholder(tf.int32, (FLAGS.batch_size,), "s2_lengths")
+
+        with tf.device("/cpu:0"):
+            embeddings = tf.get_variable("embeddings", (vocab_size, FLAGS.embedding_dim))
+            s1_embedded = [embedding_project_fn(tf.nn.embedding_lookup(embeddings, s1_input_t))
+                           for s1_input_t in s1_inputs]
+            s2_embedded = [embedding_project_fn(tf.nn.embedding_lookup(embeddings, s2_input_t))
+                           for s2_input_t in s2_inputs]
+
+        cell = tf.nn.rnn_cell.BasicLSTMCell(FLAGS.model_dim / 2)
+        with tf.variable_scope("s1"):
+            _, s1_state = tf.nn.rnn(cell, s1_embedded, sequence_lengths=s1_lengths)
+        with tf.variable_scope("s2"):
+            _, s2_state = tf.nn.rnn(cell, s2_embedded, sequence_lengths=s2_lengths)
+
+        # Now prep return representations
+        mlp_inputs = [s1_state, s2_state]
+
+        if FLAGS.use_difference_feature:
+            mlp_inputs.append(s2_state - s1_state)
+        if FLAGS.use_product_feature:
+            mlp_inputs.append(s1_state * s2_state)
+
+        mlp_input = tf.concat(1, mlp_inputs)
+
+        if FLAGS.sentence_repr_batch_norm:
+            mlp_input = layers.batch_norm(mlp_input, center=True, scale=True,
+                                          is_training=True, scope="sentence_repr_bn")
+        if FLAGS.sentence_repr_keep_rate < 1.0:
+            mlp_input = tf.cond(is_training,
+                    lambda: tf.nn.dropout(mlp_input, FLAGS.sentence_repr_keep_rate,
+                                          name="sentence_repr_dropout"),
+                    lambda: mlp_input / FLAGS.sentence_repr_keep_rate)
+
+        logits = classifier_fn(mlp_input)
+        assert logits.get_shape()[1] == num_classes
+
+        xent_loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits, ys)
+        xent_loss = tf.reduce_mean(xent_loss)
+        tf.scalar_summary("xent_loss", xent_loss)
+
+        rewards = build_rewards(logits, ys)
+        tf.scalar_summary("avg_reward", tf.reduce_mean(rewards))
+
+        params = tf.trainable_variables()
+        if not train_embeddings:
+            params.remove(embeddings)
+
+        l2_loss = tf.add_n([tf.reduce_sum(tf.square(param))
+                            for param in params])
+        tf.scalar_summary("l2_loss", l2_loss)
+        total_loss = xent_loss + FLAGS.l2_lambda * l2_loss
+
+        xent_gradients = zip(tf.gradients(total_loss, params), params)
+
+    return None, logits, ys, gradients
+
+
 def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_training, num_classes,
                               train_embeddings=True, initial_embeddings=None):
     initializer = tf.random_uniform_initializer(-0.005, 0.005)
@@ -434,7 +521,12 @@ def main():
 
     tf.logging.info("Building training graphs.")
     classifier_fn = partial(mlp_classifier, num_classes=data.num_classes)
-    model_fn = build_sentence_pair_model if data.is_pair_data else build_model
+    if FLAGS.model == "rnn":
+        if not data.is_pair_data:
+            raise ValueError("RNN only built for pair data.")
+        model_fn = build_sentence_pair_rnn_model
+    else:
+        model_fn = build_sentence_pair_model if data.is_pair_data else build_model
     model_fn = partial(model_fn, vocab_size=len(data.vocabulary),
                        classifier_fn=classifier_fn,
                        train_embeddings=data.train_embeddings,
@@ -489,6 +581,7 @@ if __name__ == '__main__':
     gflags.DEFINE_integer("summary_step_interval", 100, "")
     gflags.DEFINE_integer("training_steps", 10000, "")
 
+    gflags.DEFINE_enum("model", "spinn", ["spinn", "rnn"], "")
     gflags.DEFINE_boolean("profile", False, "")
     gflags.DEFINE_boolean("gradient_check", False, "")
 
