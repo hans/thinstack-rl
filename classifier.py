@@ -303,7 +303,7 @@ def gradient_check(classifier_graph, num_classes):
     Run a numerical gradient check over a classifier graph.
     """
 
-    inputs = tf.trainable_variables()
+    inputs = [var for var in tf.trainable_variables() if "embeddings" not in var.name]
     for stack in classifier_graph.stacks:
         inputs.extend([stack.buff_embeddings]) # TODO: add more
 
@@ -372,7 +372,8 @@ def gradient_check(classifier_graph, num_classes):
             stack.reset(s)
         err = gradient_checker.compute_gradient_error(inputs, input_shapes,
                                                       y, y_shape,
-                                                      feed_dict=feed_dict)
+                                                      feed_dict=feed_dict,
+                                                      limit=5)
     return err
 
 

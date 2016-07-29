@@ -123,7 +123,8 @@ def _compute_theoretical_jacobian(x, x_shape, x_data, dy, dy_shape, dx, feed_dic
   return jacobian
 
 
-def _compute_numeric_jacobian(x, x_shape, x_data, y, y_shape, delta, feed_dict):
+def _compute_numeric_jacobian(x, x_shape, x_data, y, y_shape, delta, feed_dict,
+                              limit=0):
   """Computes the numeric Jacobian for dy/dx.
 
   Computes the numeric Jacobian by slightly perturbing the inputs and
@@ -158,7 +159,7 @@ def _compute_numeric_jacobian(x, x_shape, x_data, y, y_shape, delta, feed_dict):
   # subtracting a delta and then compute difference between the outputs. This
   # will give us one row of the Jacobian matrix.
   feed_copy = copy.copy(feed_dict) if feed_dict is not None else {}
-  for row in range(x_size):
+  for row in range(min(x_size, limit)):
     x_pos = x_data.copy()
     x_neg = x_data.copy()
     x_pos.ravel().view(x_dtype)[row] += delta
@@ -201,7 +202,8 @@ def _compute_gradient(x,
                       dy,
                       x_init_value=None,
                       delta=1e-3,
-                      feed_dict=None):
+                      feed_dict=None,
+                      limit=0):
   """Computes the theoretical and numerical jacobian."""
   t = dtypes.as_dtype(x.dtype)
   allowed_types = [dtypes.float16, dtypes.float32, dtypes.float64,
@@ -224,8 +226,11 @@ def _compute_gradient(x,
       dtype = np.float64
     x_data = np.asfarray(np.random.random_sample(x_shape), dtype=dtype)
 
+  print("\ttheoretical jacobian..")
   jacob_t = _compute_theoretical_jacobian(x, x_shape, x_data, dy, y_shape, dx, feed_dict)
-  jacob_n = _compute_numeric_jacobian(x, x_shape, x_data, y, y_shape, delta, feed_dict)
+
+  print("\tnumeric jacobian..")
+  jacob_n = _compute_numeric_jacobian(x, x_shape, x_data, y, y_shape, delta, feed_dict, limit=limit)
   return jacob_t, jacob_n
 
 
@@ -236,7 +241,8 @@ def _compute_gradient_list(x,
                            x_init_value=None,
                            delta=1e-3,
                            init_targets=None,
-                           feed_dict=None):
+                           feed_dict=None,
+                           limit=0):
   """Compute gradients for a list of x values."""
   assert isinstance(x, list)
   dx, dy = zip(*[_compute_dx_and_dy(xi, y, y_shape) for xi in x])
@@ -247,10 +253,12 @@ def _compute_gradient_list(x,
       init.run()
   if x_init_value is None:
     x_init_value = [None] * len(x)
-  ret = [_compute_gradient(xi, x_shapei, dxi, y, y_shape, dyi, x_init_valuei,
-                           delta, feed_dict)
-         for xi, x_shapei, dxi, dyi, x_init_valuei in zip(x, x_shape, dx, dy,
-                                                          x_init_value)]
+
+  ret = []
+  for xi, x_shapei, dxi, dyi, x_init_valuei in zip(x, x_shape, dx, dy, x_init_value):
+      print(xi.name)
+      ret.append(_compute_gradient(xi, x_shapei, dxi, y, y_shape, dyi, x_init_valuei,
+                                   delta, feed_dict, limit=limit))
   return ret
 
 
@@ -261,7 +269,8 @@ def compute_gradient(x,
                      x_init_value=None,
                      delta=1e-3,
                      init_targets=None,
-                     feed_dict=None):
+                     feed_dict=None,
+                     limit=0):
   """Computes and returns the theoretical and numerical Jacobian.
 
   If `x` or `y` is complex, the Jacobian will still be real but the
@@ -298,14 +307,14 @@ def compute_gradient(x,
   """
   if isinstance(x, list):
     return _compute_gradient_list(x, x_shape, y, y_shape, x_init_value, delta,
-                                  init_targets, feed_dict)
+                                  init_targets, feed_dict, limit=limit)
   else:
     if init_targets is not None:
       assert isinstance(init_targets, (list, tuple))
       for init in init_targets:
         init.run()
     dx, dy = _compute_dx_and_dy(x, y, y_shape)
-    ret = _compute_gradient(x, x_shape, dx, y, y_shape, dy, x_init_value, delta, feed_dict)
+    ret = _compute_gradient(x, x_shape, dx, y, y_shape, dy, x_init_value, delta, feed_dict, limit=limit)
     return ret
 
 
@@ -316,7 +325,8 @@ def compute_gradient_error(x,
                            x_init_value=None,
                            delta=1e-3,
                            init_targets=None,
-                           feed_dict=None):
+                           feed_dict=None,
+                           limit=0):
   """Computes the gradient error.
 
   Computes the maximum error for dy/dx between the computed Jacobian and the
@@ -354,5 +364,9 @@ def compute_gradient_error(x,
   error = 0
   for j_t, j_n in grad:
     if j_t.size or j_n.size:  # Handle zero size tensors correctly
-      error = max(error, np.fabs(j_t - j_n).max())
+      diff = np.fabs(j_t - j_n).flat()
+      # Mask out differences that we didn't calculate fully.
+      diff = diff[:limit]
+
+      error = max(error, diff.max())
   return error
