@@ -1,5 +1,6 @@
 from collections import namedtuple
 from functools import partial
+from pprint import pprint
 import sys
 
 import gflags
@@ -336,6 +337,9 @@ def run_batch(sess, graph, batch_data, do_summary=True, is_training=True,
 
 
 def main():
+    pprint(FLAGS.FlagValuesDict())
+    sys.stdout.flush()
+
     tf.logging.info("Loading and preparing data.")
     data = prepare_data()
 
