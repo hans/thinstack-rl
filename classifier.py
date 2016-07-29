@@ -1,5 +1,6 @@
 from collections import namedtuple
 from functools import partial
+from pprint import pprint
 import sys
 
 import gflags
@@ -374,6 +375,9 @@ def gradient_check(classifier_graph, num_classes):
                                                       y, y_shape,
                                                       feed_dict=feed_dict,
                                                       limit=5)
+
+        pprint({var.name: value for var, value in err})
+
     return err
 
 

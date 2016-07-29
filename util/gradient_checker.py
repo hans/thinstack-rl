@@ -361,12 +361,12 @@ def compute_gradient_error(x,
                           init_targets, feed_dict)
   if isinstance(grad, tuple):
     grad = [grad]
-  error = 0
-  for j_t, j_n in grad:
+  error = {}
+  for x, (j_t, j_n) in zip(x, grad):
     if j_t.size or j_n.size:  # Handle zero size tensors correctly
-      diff = np.fabs(j_t - j_n).flat()
+      diff = np.fabs(j_t - j_n).flat
       # Mask out differences that we didn't calculate fully.
       diff = diff[:limit]
 
-      error = max(error, diff.max())
+      error[x] = diff.max()
   return error
