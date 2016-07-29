@@ -276,14 +276,15 @@ def build_graphs(model_fn, buckets):
             stacks, logits, ys, gradients = model_fn(num_timesteps,
                                                      is_training=is_training)
 
-            # Set up histogram displays
-            params = set()
-            for gradient, param in gradients:
-                params.add(param)
-                if gradient is not None:
-                    tf.histogram_summary(gradient.name + "b%i" % num_timesteps, gradient)
-            for param in params:
-                tf.histogram_summary(param.name + "b%i" % num_timesteps, param)
+            if FLAGS.histogram_summaries:
+                # Set up histogram displays
+                params = set()
+                for gradient, param in gradients:
+                    params.add(param)
+                    if gradient is not None:
+                        tf.histogram_summary(gradient.name + "b%i" % num_timesteps, gradient)
+                for param in params:
+                    tf.histogram_summary(param.name + "b%i" % num_timesteps, param)
 
             # Clip gradients.
             clipped_gradients, norm = tf.clip_by_global_norm(
@@ -416,6 +417,7 @@ if __name__ == '__main__':
     gflags.DEFINE_string("logdir", "/tmp/rl-stack", "")
     gflags.DEFINE_integer("summary_step_interval", 100, "")
     gflags.DEFINE_integer("training_steps", 10000, "")
+    gflags.DEFINE_boolean("histogram_summaries", False, "")
     gflags.DEFINE_boolean("profile", False, "")
 
     gflags.DEFINE_integer("batch_size", 64, "")
