@@ -286,10 +286,11 @@ def build_graphs(model_fn, buckets):
                 tf.histogram_summary(param.name + "b%i" % num_timesteps, param)
 
             # Clip gradients.
-            clipped_gradients = tf.clip_by_global_norm(
+            clipped_gradients, norm = tf.clip_by_global_norm(
                     [grad for grad, param in gradients], FLAGS.grad_clip)
             clipped_gradients = zip(clipped_gradients,
                                     [param for _, param in gradients])
+            tf.scalar_summary("norm_%i" % num_timesteps, norm)
 
             train_op = opt.apply_gradients(clipped_gradients, global_step)
 
