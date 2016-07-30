@@ -78,15 +78,24 @@ def PadExample(example, actual_transitions, desired_transitions, keys):
     return example
 
 
-def PadDataset(dataset, desired_length, sentence_pair_data=False):
+def PadDataset(dataset, desired_length, sentence_pair_data=False,
+               discard_long_examples=True):
     keys = _SENTENCE_PAIR_KEYS if sentence_pair_data else _SENTENCE_KEYS
 
+    new_dataset = []
     for example in dataset:
         max_transitions = max(len(example[transitions_key]) for transitions_key, _, _ in keys)
-        assert max_transitions <= desired_length
-        PadExample(example, max_transitions, desired_length, keys)
+        if max_transitions > desired_length:
+            if discard_long_examples:
+                continue
+            else:
+                raise ValueError("sentence has %i transitions > desired length of %i"
+                                 % (max_transitions, desired_length))
 
-    return dataset
+        example = PadExample(example, max_transitions, desired_length, keys)
+        new_dataset.append(example)
+
+    return new_dataset
 
 
 def PadAndBucket(dataset, lengths, batch_size, sentence_pair_data=False, discard_long_examples=True):
