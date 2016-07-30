@@ -69,7 +69,7 @@ def PadExample(example, actual_transitions, desired_transitions, keys):
     num_tokens = (desired_transitions + 1) / 2
 
     for transitions_key, tokens_key, len_key in keys:
-        example[len_key] = actual_transitions
+        example[len_key] = len(example[transitions_key])
 
         # Pad everything at right.
         example[transitions_key] += [0] * (desired_transitions - len(example[transitions_key]))
