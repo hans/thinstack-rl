@@ -255,8 +255,8 @@ def prepare_data():
         eval_data_i = util.data.PadDataset(eval_data_i, buckets[-1],
                                            sentence_pair_data=sentence_pair_data)
         eval_data_i = util.data.BucketToArrays(eval_data_i, data_manager)
-        iterator = util.data.MakeEvalIterator(eval_data_i, FLAGS.batch_size)
-        eval_iterators.append((name, iterator))
+        e_iterator = util.data.MakeEvalIterator(eval_data_i, FLAGS.batch_size)
+        eval_iterators.append((name, e_iterator))
 
     return Data(iterator, eval_iterators, buckets, vocabulary,
                 sentence_pair_data, train_embeddings, data_manager.NUM_CLASSES)
