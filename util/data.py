@@ -243,9 +243,9 @@ def BucketToArrays(dataset, data_manager, for_rnn=False):
                                    dtype=np.int32)
 
     # Transpose from (num_stacks, num_examples, num_timesteps)
-    # to (num_examples, num_stacks, num_timesteps)
-    X = np.transpose(X, (1, 0, 2))
-    transitions = np.transpose(transitions, (1, 0, 2))
+    # to (num_examples, num_timesteps, num_stacks)
+    X = np.transpose(X, (1, 2, 0))
+    transitions = np.transpose(transitions, (1, 2, 0))
     # transpose from (num_stacks, num_examples)
     # to (num_examples, num_stacks)
     num_transitions = num_transitions.T

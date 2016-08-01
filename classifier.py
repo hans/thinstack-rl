@@ -541,8 +541,8 @@ def run_batch(sess, graph, batch_data, learning_rate, do_summary=True,
         stack.reset(sess)
 
     # each batch data element has leading batch axis
-    # X: (B, num_stacks, buffer_size)
-    # transitions: (B, num_stacks, num_timesteps)
+    # X: (B, buffer_size, num_stacks)
+    # transitions: (B, num_timesteps, num_stacks)
     # num_transitions: (B, num_stacks)
     X, transitions, num_transitions, ys = batch_data
 
@@ -554,8 +554,8 @@ def run_batch(sess, graph, batch_data, learning_rate, do_summary=True,
     }
     for i, stack in enumerate(graph.stacks):
         # Swap batch axis to front.
-        X_i = X[:, i].T
-        transitions_i = transitions[:, i, :].T
+        X_i = X[:, :, i].T
+        transitions_i = transitions[:, :, i].T
 
         feed.update({stack.transitions[t]: transitions_i[t]
                      for t in range(graph.num_timesteps)})
