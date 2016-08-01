@@ -248,15 +248,13 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_train
                         lambda: embeddings / FLAGS.embedding_keep_rate)
             return embeddings
 
-        # Share scope across the two models. (==> shared embedding projection /
-        # BN weights)
-        embedding_project_fn = tf.make_template("embedding_project", embedding_project_fn)
-
+        # NB: tf.make_template enforces that weights of functions are shared
+        # across the two stack models.
         ts_args = {
-            "compose_fn": util.TreeLSTMLayer,
-            "tracking_fn": util.LSTMLayer,
+            "compose_fn": tf.make_template("ts_compose", util.TreeLSTMLayer),
+            "tracking_fn": tf.make_template("ts_track", util.Linear),
             "transition_fn": None,
-            "embedding_project_fn": embedding_project_fn,
+            "embedding_project_fn": tf.make_template("ts_embedding_project", embedding_project_fn),
             "batch_size": FLAGS.batch_size,
             "vocab_size": vocab_size,
             "num_timesteps": num_timesteps,
@@ -519,7 +517,7 @@ def gradient_check(classifier_graph, num_classes):
             feed_dict[stack.transitions[t]] = transitions_t
 
     with tf.Session(FLAGS.master) as s:
-        s.run(tf.initialize_variables(tf.trainable_variables()))
+        s.run(tf.initialize_variables(tf.all_variables()))
 
         def prep_fn():
             for stack in classifier_graph.stacks:
