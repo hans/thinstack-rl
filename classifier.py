@@ -108,7 +108,7 @@ def build_sentence_pair_model(num_timesteps, vocab_size, classifier_fn, is_train
         # across the two stack models.
         ts_args = {
             "compose_fn": tf.make_template("ts_compose", util.TreeLSTMLayer),
-            "tracking_fn": tf.make_template("ts_track", util.Linear),
+            "tracking_fn": tf.make_template("ts_track", util.LSTMLayer),
             "transition_fn": None,
             "embedding_project_fn": tf.make_template("ts_embedding_project", embedding_project_fn),
             "batch_size": FLAGS.batch_size,
