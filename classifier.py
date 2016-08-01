@@ -456,11 +456,8 @@ def gradient_check(classifier_graph, num_classes):
     Run a numerical gradient check over a classifier graph.
     """
 
-    print "\n".join(var.name for var in tf.trainable_variables())
-    inputs = [var for var in tf.trainable_variables() if "embeddings" not in var.name][:2]
-    inputs = [var for var in tf.trainable_variables() if "logits" in var.name]
-    # for stack in classifier_graph.stacks:
-    #     inputs.extend([stack.buff_embeddings]) # TODO: add more
+    inputs = [var for var in tf.trainable_variables() if "embeddings" not in var.name]
+    print "\n".join(var.name for var in inputs)
 
     input_shapes = [x.get_shape() for x in inputs]
     for input_shape in input_shapes:
@@ -523,11 +520,15 @@ def gradient_check(classifier_graph, num_classes):
 
     with tf.Session(FLAGS.master) as s:
         s.run(tf.initialize_variables(tf.trainable_variables()))
-        for stack in classifier_graph.stacks:
-            stack.reset(s)
+
+        def prep_fn():
+            for stack in classifier_graph.stacks:
+                stack.reset(s)
+
         err = gradient_checker.compute_gradient_error(inputs, input_shapes,
                                                       y, y_shape,
                                                       feed_dict=feed_dict,
+                                                      prep_fn=prep_fn,
                                                       limit=5)
 
         pprint({var.name: value for var, value in err.items()})
